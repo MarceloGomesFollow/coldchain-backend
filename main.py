@@ -81,3 +81,26 @@ def analisar():
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
+import openai
+
+@app.route('/chat', methods=['POST'])
+def chat():
+    data = request.get_json()
+    pergunta = data.get("pergunta")
+
+    if not pergunta:
+        return jsonify({"erro": "Pergunta não enviada."}), 400
+
+    try:
+        resposta = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "Você é um especialista em cadeia fria e logística de temperatura."},
+                {"role": "user", "content": pergunta}
+            ]
+        )
+        mensagem = resposta['choices'][0]['message']['content'].strip()
+        return jsonify({"resposta": mensagem})
+    except Exception as e:
+        return jsonify({"erro": str(e)}), 500
