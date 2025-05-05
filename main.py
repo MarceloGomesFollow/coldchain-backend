@@ -20,6 +20,9 @@ def home():
     return 'Coldchain backend está no ar! 🚀'
 
 @app.route('/analisar', methods=['POST'])
+import re
+
+@app.route('/analisar', methods=['POST'])
 def analisar():
     global ultimo_embarque, ultimo_temp_text, ultimo_sm_text
 
@@ -31,27 +34,26 @@ def analisar():
         return jsonify({'error': 'Faltam dados no formulário'}), 400
 
     try:
-        # Leitura do relatório de temperatura
+        # Leitura dos PDFs
         temp_text = ''
         with fitz.open(stream=temp_pdf.read(), filetype="pdf") as doc:
             for page in doc:
                 temp_text += page.get_text()
 
-        # Leitura do SM
         sm_text = ''
         sm_pdf.stream.seek(0)
         with pdfplumber.open(sm_pdf.stream) as pdf:
             for page in pdf.pages:
                 sm_text += page.extract_text() or ''
 
-        # Armazena na memória para uso posterior no chat
+        # Salva em memória
         ultimo_embarque = embarque
-        ultimo_temp_text = temp_text[:3000]  # limitar tamanho para o prompt
+        ultimo_temp_text = temp_text[:3000]
         ultimo_sm_text = sm_text[:3000]
 
-        # Prompt para análise
+        # 🧠 Análise GPT
         prompt = f"""
-Você é um analista técnico de cadeia fria. Gere um resumo técnico com foco em desvios de temperatura e pontos críticos.
+Você é um analista de cadeia fria. Gere um resumo técnico com foco em desvios de temperatura.
 
 RELATÓRIO DE TEMPERATURA:
 {ultimo_temp_text}
@@ -70,6 +72,28 @@ RELATÓRIO SM:
 
         gpt_response = response.choices[0].message.content.strip()
 
+        # 🔍 Regex para extrair temperaturas com horário (ex: "08:00 - 2.3°C")
+        matches = re.findall(r'(\d{2}[:h]\d{2}).*?([-+]?\d{1,2}[.,]?\d{0,2}) ?°?C', temp_text)
+        labels = []
+        valores = []
+
+        for hora, temp in matches:
+            labels.append(hora.replace("h", ":"))
+            valores.append(float(temp.replace(",", ".")))
+
+        grafico_json = {
+            "grafico": {
+                "tipo": "line",
+                "labels": labels,
+                "datasets": [{
+                    "label": "Temperatura (°C)",
+                    "data": valores,
+                    "borderColor": "rgba(75,192,192,1)",
+                    "fill": False
+                }]
+            }
+        } if labels and valores else {}
+
         resultado = f"""
 ### Relatório ColdChain
 
@@ -84,9 +108,12 @@ RELATÓRIO SM:
 #### Análise da IA:
 {gpt_response}
 """
-        return jsonify({'report_md': resultado.strip()})
+
+        return jsonify({'report_md': resultado.strip(), **grafico_json})
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
 
 @app.route('/chat', methods=['POST'])
 def chat():
