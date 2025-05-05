@@ -7,47 +7,50 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-@app.route("/")
-def index():
-    return "Coldchain backend está no ar! 🚀"
+@app.route('/')
+def home():
+    return 'Coldchain backend está no ar! 🚀'
 
-@app.route("/analisar", methods=["POST"])
-def analisar_pdfs():
-    embarque = request.form.get("embarque")
-    relatorio_file = request.files.get("relatorio")
-    sm_file = request.files.get("sm")
+@app.route('/analisar', methods=['POST'])
+def analisar():
+    embarque = request.form.get('embarque')
+    temp_pdf = request.files.get('temps')
+    sm_pdf = request.files.get('sm')
 
-    if not relatorio_file or not sm_file:
-        return jsonify({"erro": "Arquivos obrigatórios não enviados."}), 400
-
-    resultados = {}
+    if not embarque or not temp_pdf or not sm_pdf:
+        return jsonify({'error': 'Faltam dados no formulário'}), 400
 
     try:
-        # Processa com PyMuPDF
-        relatorio_file_stream = relatorio_file.read()
-        with fitz.open(stream=relatorio_file_stream, filetype="pdf") as doc:
-            texto_pymupdf = ""
+        # Processar com PyMuPDF
+        temp_text = ''
+        with fitz.open(stream=temp_pdf.read(), filetype="pdf") as doc:
             for page in doc:
-                texto_pymupdf += page.get_text()
-            resultados["pymupdf"] = texto_pymupdf[:1000]  # limitar para exibição
+                temp_text += page.get_text()
 
-        # Resetar ponteiro do segundo PDF
-        sm_file.seek(0)
-
-        # Processa com pdfplumber
-        with pdfplumber.open(sm_file) as pdf:
-            texto_pdfplumber = ""
+        # Processar com pdfplumber
+        sm_text = ''
+        sm_pdf.stream.seek(0)  # Resetar ponteiro
+        with pdfplumber.open(sm_pdf.stream) as pdf:
             for page in pdf.pages:
-                texto_pdfplumber += page.extract_text() or ""
-            resultados["pdfplumber"] = texto_pdfplumber[:1000]
+                sm_text += page.extract_text() or ''
 
-        return jsonify({
-            "embarque": embarque,
-            "resultado": resultados
-        })
+        # Gerar relatório simples
+        resultado = f"""
+### Relatório ColdChain
+
+**Embarque:** {embarque}
+
+#### Resumo do Relatório de Temperatura:
+{temp_text.strip()[:1000] or 'Nenhum dado encontrado.'}
+
+#### Resumo do SM:
+{sm_text.strip()[:1000] or 'Nenhum dado encontrado.'}
+"""
+
+        return jsonify({'report_md': resultado.strip()})
     except Exception as e:
-        return jsonify({"erro": f"Falha ao processar os PDFs: {str(e)}"}), 500
+        return jsonify({'error': str(e)}), 500
 
-if __name__ == "__main__":
-    app.run(debug=True, port=10000)
-
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
