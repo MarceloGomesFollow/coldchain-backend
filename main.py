@@ -3,6 +3,7 @@ from flask_cors import CORS
 import fitz  # PyMuPDF
 import pdfplumber
 import os
+import re
 from openai import OpenAI
 
 app = Flask(__name__)
@@ -20,7 +21,7 @@ def home():
     return 'Coldchain backend está no ar! 🚀'
 
 @app.route('/analisar', methods=['POST'])
-import re
+
 
 @app.route('/analisar', methods=['POST'])
 def analisar():
