@@ -84,19 +84,17 @@ RELATÓRIO SM:
 
         datasets = []
         for nome_sensor, temperaturas in sensores.items():
-            datasets.append({
-                "label": nome_sensor,
-                "data": temperaturas,
-                "segment": {
-                    "borderColor": {
-                        "fn": "function(ctx) { const v = ctx.p1.parsed.y; return (v < 2 || v > 8) ? 'red' : 'green'; }"
-                    }
-                },
-                "borderWidth": 2,
-                "fill": False,
-                "pointRadius": 2,
-                "tension": 0.4
-            })
+    datasets.append({
+        "label": nome_sensor,
+        "data": temperaturas,
+        "borderColor": "green",
+        "backgroundColor": "transparent",
+        "pointBackgroundColor": ["red" if t < 2 or t > 8 else "green" for t in temperaturas],
+        "borderWidth": 2,
+        "fill": False,
+        "pointRadius": 2,
+        "tension": 0.4
+    })
 
         datasets.append({
             "label": "Limite Máx (8°C)",
