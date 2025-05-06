@@ -2,8 +2,8 @@
 
 REQUIRED_FIELDS = {
     'relatorio_temp': [
-        # se no PDF vier abreviado ou com acento diferente, substitua por:
-        "temp",      # estamos usando lowercase para comparação case-insensitive
+        # termos em lowercase para comparação case-insensitive
+        "temp",
         "data",
         "hora"
     ],
@@ -12,15 +12,17 @@ REQUIRED_FIELDS = {
         "monitoramento",
         "sm"
     ],
-    if tipo != 'cte':
-    validate_content(text, fn, tipo)
+    'cte': [
+        "conhecimento",
+        "embarque",
+        "cte"
     ]
 }
 
 def validate_content(text: str, filename: str, tipo: str):
     """
     Garante que todos os campos em REQUIRED_FIELDS[tipo] estejam presentes em text.
-    Faz a checagem em lowercase para ignorar caixa alta/baixa.
+    A comparação é feita em lowercase para ignorar caixa alta/baixa.
     """
     text_low = text.lower()
     missing = []
