@@ -1,6 +1,16 @@
-flask
+fflask
 flask-cors
 PyMuPDF
 pdfplumber
 gunicorn
 openai
+
+pandas
+Pillow
+pytesseract
+openpyxl
+xlrd
+
+git add requirements.txt
+git commit -m "Adiciona pandas, Pillow, pytesseract e demais dependências"
+git push origin main
