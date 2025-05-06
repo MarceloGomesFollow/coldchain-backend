@@ -73,7 +73,13 @@ RELATÓRIO SM:
         resultado = f"""
 ### Relatório ColdChain
 
+**Nome do Cliente:** (Defina cliente no front futuramente)
 **Embarque:** {embarque}
+**Origem e Destino:** (Extraído do SM ou incluir campo futuro)
+
+#### Dados do Embarque:
+- Data: (Definir se disponível)
+- Horário: (Definir se disponível)
 
 #### Resumo do Relatório de Temperatura:
 {ultimo_temp_text[:1000] or 'Nenhum dado encontrado.'}
@@ -129,4 +135,3 @@ RELATÓRIO SM:
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
