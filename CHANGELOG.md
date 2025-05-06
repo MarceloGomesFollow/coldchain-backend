@@ -10,6 +10,14 @@ Markdown: Template executivo unificado com cabeçalhos, seções e blocos de tex
 
 Changelog: Criação deste arquivo de log de mudanças.
 
+## [1.1.0] – 2025-05-07
+### Added
+- Gráfico: geração de scatter com `showLine` e `pointRadius`.  
+- Markdown: template executivo com seções numeradas.
+
+## [Unreleased]
+
+
 [1.0.0] - 2025-05-06
 
 Added
