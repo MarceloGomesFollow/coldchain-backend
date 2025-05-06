@@ -31,34 +31,33 @@ def analisar():
         return jsonify({'error': 'Faltam dados no formulário'}), 400
 
     try:
-        # Leitura do PDF de temperatura
         temp_text = ''
         with fitz.open(stream=temp_pdf.read(), filetype="pdf") as doc:
             for page in doc:
                 temp_text += page.get_text()
 
-        # Leitura do PDF do SM
         sm_text = ''
         sm_pdf.stream.seek(0)
         with pdfplumber.open(sm_pdf.stream) as pdf:
             for page in pdf.pages:
                 sm_text += page.extract_text() or ''
 
-        # Salvar para o chat
+        # Salvar contexto para chat posterior
         ultimo_embarque = embarque
         ultimo_temp_text = temp_text[:3000]
         ultimo_sm_text = sm_text[:3000]
 
-        # Prompt para gerar relatório com base nos arquivos
-        prompt = f"""
+        # Prompt inicial para o GPT entender faixas de temperatura
+        faixa_prompt = f"""
+A seguir estão dois relatórios de um embarque de cadeia fria.
 Você é um analista técnico de cadeia fria. Gere um relatório executivo para o embarque abaixo com:
+A seguir estão dois relatórios de um embarque de cadeia fria.
 - Cabeçalho com Nome do Cliente, Origem e Destino (data/hora), se presentes no conteúdo.
+Sua tarefa é identificar as faixas de temperatura controlada adotadas (ex: 2 a 8 °C) e nome dos sensores presentes:
 - Identifique os sensores usados e as faixas de temperatura controlada adotadas.
 - Breve resumo técnico da excursão de temperatura, se houver desvios.
 - Pontos críticos encontrados.
-- Sugestões de melhoria.
-
-Use os textos a seguir para extrair e compor os dados:
+- Sugestões de melhoria. Sua tarefa é identificar as faixas de temperatura controlada adotadas (ex: 2 a 8 °C) e nome dos sensores presentes:
 
 RELATÓRIO DE TEMPERATURA:
 {ultimo_temp_text}
@@ -66,51 +65,64 @@ RELATÓRIO DE TEMPERATURA:
 RELATÓRIO SM:
 {ultimo_sm_text}
 """
-        response = client.chat.completions.create(
+        faixa_resp = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "Você é um analista técnico em transporte refrigerado."},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": "Você é um analista técnico de cadeia fria."},
+                {"role": "user", "content": faixa_prompt}
             ]
         )
+        faixa_text = faixa_resp.choices[0].message.content.strip()
 
-        gpt_response = response.choices[0].message.content.strip()
+        # Tentativa de extração de dados tabulares com pdfplumber
+        sm_pdf.stream.seek(0)
+        sensor_data = {}
+        timestamps = []
+        with pdfplumber.open(temp_pdf.stream) as pdf:
+            for page in pdf.pages:
+                tables = page.extract_tables()
+                for table in tables:
+                    headers = table[0]
+                    if not headers or "sensor" not in str(headers).lower():
+                        continue
 
-        # Simulação: sensores múltiplos e timestamps gerados a cada 2 minutos
-        sensores_detectados = {
-            "Sensor 1": [6.0, 7.0, 8.5, 9.1, 7.2, 5.0, 3.0, 1.5, 2.0, 6.2],
-            "Sensor 2": [5.8, 6.5, 7.9, 8.3, 7.0, 6.0, 3.5, 2.5, 1.8, 2.3]
-        }
+                    for row in table[1:]:
+                        if len(row) < 2:
+                            continue
+                        time_str = row[0]
+                        if not time_str:
+                            continue
+                        timestamps.append(time_str.strip())
+                        for idx, val in enumerate(row[1:], 1):
+                            try:
+                                t = float(val.strip().replace(',', '.'))
+                            except:
+                                continue
+                            key = headers[idx].strip()
+                            sensor_data.setdefault(key, []).append(t)
 
-        timestamps = [f"15:{25 + i*2:02d}" for i in range(len(next(iter(sensores_detectados.values()))))]
-
-        limite_min = 2.0
-        limite_max = 8.0
+        # Determinar limites de temperatura a partir da faixa_text
+        import re
+        match = re.search(r'(\d+(?:\.\d+)?)\s*a\s*(\d+(?:\.\d+)?)', faixa_text)
+        limite_min = float(match.group(1)) if match else 2.0
+        limite_max = float(match.group(2)) if match else 8.0
 
         cores = ["#006400", "#00aa00", "#00cc44"]
         datasets = []
-
-        for idx, (nome_sensor, temperaturas) in enumerate(sensores_detectados.items()):
+        for idx, (nome_sensor, temperaturas) in enumerate(sensor_data.items()):
             datasets.append({
                 "label": nome_sensor,
                 "data": temperaturas,
                 "borderColor": cores[idx % len(cores)],
                 "backgroundColor": "transparent",
-                "pointBackgroundColor": [
-                    "red" if t < limite_min or t > limite_max else cores[idx % len(cores)]
-                    for t in temperaturas
-                ],
-                "pointRadius": [
-                    6 if t < limite_min or t > limite_max else 3
-                    for t in temperaturas
-                ],
+                "pointBackgroundColor": ["red" if t < limite_min or t > limite_max else cores[idx % len(cores)] for t in temperaturas],
+                "pointRadius": [6 if t < limite_min or t > limite_max else 3 for t in temperaturas],
                 "pointStyle": "circle",
                 "borderWidth": 2,
                 "fill": False,
                 "tension": 0.4
             })
 
-        # Linhas de referência
         datasets.append({
             "label": f"Limite Máx ({limite_max}°C)",
             "data": [limite_max]*len(timestamps),
@@ -134,6 +146,30 @@ RELATÓRIO SM:
             "labels": timestamps,
             "datasets": datasets
         }
+
+        # Gerar relatório final
+        final_prompt = f"""
+Com base nos relatórios a seguir, gere um relatório executivo para o cliente com:
+- Cabeçalho com Nome, Origem, Destino, Datas.
+- Resumo de excursões.
+- Pontos Críticos.
+- Sugestões de melhoria.
+
+RELATÓRIO DE TEMPERATURA:
+{ultimo_temp_text}
+
+RELATÓRIO SM:
+{ultimo_sm_text}
+"""
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "Você é um analista experiente em cadeia fria."},
+                {"role": "user", "content": final_prompt}
+            ]
+        )
+
+        gpt_response = response.choices[0].message.content.strip()
 
         return jsonify({
             'report_md': gpt_response,
