@@ -1,7 +1,8 @@
+import os    
 from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
 
-from modules.extractor import extract_from_pdf, extract_from_image, extract_from_excel
+from modules.extractor import extract_from_pdf, extract_from_image, extract_from_excel, ALLOWED_EXT
 from modules.validator import validate_content
 from modules.reporter  import generate_report_md
 from modules.chart     import generate_chart_data
@@ -17,14 +18,14 @@ def analisar():
     if not temp or not sm:
         return jsonify(error="Relatório de Temperatura e SM são obrigatórios"), 400
 
-    to_proc = [('relatorio_temp',temp), ('solicitacao_sm',sm)]
+    to_proc = [('relatorio_temp', temp), ('solicitacao_sm', sm)]
     if cte and cte.filename:
-        to_proc.append(('cte',cte))
+        to_proc.append(('cte', cte))
 
     extracted = {}
     for tipo, f in to_proc:
         fn  = secure_filename(f.filename)
-        ext = fn.rsplit('.',1)[-1].lower()
+        ext = fn.rsplit('.', 1)[-1].lower()
         if ext not in ALLOWED_EXT:
             return jsonify(error=f"Extensão não suportada: {fn}"), 400
 
@@ -41,7 +42,7 @@ def analisar():
         except ValueError as e:
             return jsonify(error=str(e)), 400
 
-        extracted[tipo] = text.replace("\r\n","\n")
+        extracted[tipo] = text.replace("\r\n", "\n")
 
     # Etapa 1: relatório
     report_md = generate_report_md(extracted)
@@ -56,3 +57,8 @@ def analisar():
 
     return jsonify(resp)
 
+
+if __name__ == '__main__':
+    # Faz o bind na porta que o Render fornece, ou 5000 localmente
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=True, host='0.0.0.0', port=port)
