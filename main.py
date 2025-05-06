@@ -49,9 +49,13 @@ def analisar():
         ultimo_temp_text = temp_text[:3000]  # limitar tamanho para o prompt
         ultimo_sm_text = sm_text[:3000]
 
-        # Prompt para análise
+        # Prompt para cabeçalho e análise executiva
         prompt = f"""
-Você é um analista técnico de cadeia fria. Gere um resumo técnico com foco em desvios de temperatura e pontos críticos.
+Você é um analista técnico de cadeia fria. Gere um relatório executivo para o embarque abaixo, com os seguintes tópicos:
+1. Cabeçalho com Nome do Cliente, Origem e Destino (data/hora), se presentes no conteúdo.
+2. Breve resumo técnico da excursão de temperatura, se houver desvios.
+3. Pontos críticos encontrados.
+4. Se possível, sugerir melhorias preventivas.
 
 RELATÓRIO DE TEMPERATURA:
 {ultimo_temp_text}
@@ -63,34 +67,30 @@ RELATÓRIO SM:
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "Você é um analista técnico de cadeia fria."},
+                {"role": "system", "content": "Você é um analista técnico em transporte refrigerado."},
                 {"role": "user", "content": prompt}
             ]
         )
 
         gpt_response = response.choices[0].message.content.strip()
 
-        resultado = f"""
-### Relatório ColdChain
+        # Simulação de gráfico de temperatura
+        grafico_data = {
+            "tipo": "line",
+            "labels": ["00h", "06h", "12h", "18h"],
+            "datasets": [{
+                "label": "Temperatura (°C)",
+                "data": [2.5, 3.0, 4.1, 3.3],
+                "borderColor": "#007bff",
+                "fill": False
+            }]
+        }
 
-**Nome do Cliente:** (Defina cliente no front futuramente)
-**Embarque:** {embarque}
-**Origem e Destino:** (Extraído do SM ou incluir campo futuro)
+        return jsonify({
+            'report_md': gpt_response,
+            'grafico': grafico_data
+        })
 
-#### Dados do Embarque:
-- Data: (Definir se disponível)
-- Horário: (Definir se disponível)
-
-#### Resumo do Relatório de Temperatura:
-{ultimo_temp_text[:1000] or 'Nenhum dado encontrado.'}
-
-#### Resumo do SM:
-{ultimo_sm_text[:1000] or 'Nenhum dado encontrado.'}
-
-#### Análise da IA:
-{gpt_response}
-"""
-        return jsonify({'report_md': resultado.strip()})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
