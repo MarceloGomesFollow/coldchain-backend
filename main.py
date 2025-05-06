@@ -49,10 +49,11 @@ def analisar():
         ultimo_temp_text = temp_text[:3000]
         ultimo_sm_text = sm_text[:3000]
 
-        # Prompt com extração automática de dados
+        # Prompt com extração automática de dados e faixas de temperatura
         prompt = f"""
 Você é um analista técnico de cadeia fria. Gere um relatório executivo para o embarque abaixo com:
 - Cabeçalho com Nome do Cliente, Origem e Destino (data/hora), se presentes no conteúdo.
+- Identifique os sensores usados e as faixas de temperatura controlada adotadas.
 - Breve resumo técnico da excursão de temperatura, se houver desvios.
 - Pontos críticos encontrados.
 - Sugestões de melhoria.
@@ -78,27 +79,33 @@ RELATÓRIO SM:
         # Simulação de múltiplos sensores com timestamps reais
         sensores = {
             "Sensor 1": [6.0, 7.0, 8.5, 9.1, 7.2, 5.0, 3.0, 1.5, 2.0, 6.2],
-            "Sensor 2": [5.8, 6.5, 7.9, 8.3, 7.0, 6.0, 3.5, 2.5, 1.8, 2.3]
+            "Sensor 2": [5.8, 6.5, 7.9, 8.3, 7.0, 6.0, 3.5, 2.5, 1.8, 2.3],
+            "Sensor 3": [6.1, 6.9, 7.4, 7.9, 7.1, 5.8, 4.0, 2.0, 1.6, 2.5]
         }
         timestamps = [f"15:{25 + i*2:02d}" for i in range(len(next(iter(sensores.values()))))]
 
+        limite_min = 2.0
+        limite_max = 8.0
+
+        cores = ["#006400", "#00aa00", "#00cc44"]
         datasets = []
-        for nome_sensor, temperaturas in sensores.items():
+        for idx, (nome_sensor, temperaturas) in enumerate(sensores.items()):
             datasets.append({
                 "label": nome_sensor,
                 "data": temperaturas,
-                "borderColor": "green",
+                "borderColor": cores[idx % len(cores)],
                 "backgroundColor": "transparent",
-                "pointBackgroundColor": ["red" if t < 2 or t > 8 else "green" for t in temperaturas],
+                "pointBackgroundColor": ["red" if t < limite_min or t > limite_max else cores[idx % len(cores)] for t in temperaturas],
+                "pointRadius": [6 if t < limite_min or t > limite_max else 3 for t in temperaturas],
+                "pointStyle": "circle",
                 "borderWidth": 2,
                 "fill": False,
-                "pointRadius": 2,
                 "tension": 0.4
             })
 
         datasets.append({
-            "label": "Limite Máx (8°C)",
-            "data": [8]*len(timestamps),
+            "label": f"Limite Máx ({limite_max}°C)",
+            "data": [limite_max]*len(timestamps),
             "borderColor": "rgba(255,0,0,0.3)",
             "borderDash": [5, 5],
             "pointRadius": 0,
@@ -106,8 +113,8 @@ RELATÓRIO SM:
         })
 
         datasets.append({
-            "label": "Limite Mín (2°C)",
-            "data": [2]*len(timestamps),
+            "label": f"Limite Mín ({limite_min}°C)",
+            "data": [limite_min]*len(timestamps),
             "borderColor": "rgba(0,0,255,0.3)",
             "borderDash": [5, 5],
             "pointRadius": 0,
