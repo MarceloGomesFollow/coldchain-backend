@@ -1,6 +1,3 @@
-## main.py (corrigido e com health‑check)
-
-```python
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import pdfplumber
@@ -11,7 +8,7 @@ import logging
 from openai import OpenAI
 
 # Inicialização do app Flask
-a<|>pp = Flask(__name__)
+app = Flask(__name__)
 # Habilita CORS para todas as origens
 CORS(app)
 
@@ -173,128 +170,3 @@ PDF SM:
     ]
 
     return jsonify({'report_md': texto, 'grafico': {'datasets': datasets}})
-
-@app.route('/chat', methods=['POST'])
-def chat():
-    data = request.get_json()
-    pergunta = data.get('pergunta')
-    if not pergunta or not ultimo_embarque:
-        return jsonify({'erro':'Falta contexto ou pergunta'}), 400
-    contexto = (
-        f"Embarque: {ultimo_embarque}\n"
-        f"RELATÓRIO DE TEMPERATURA:\n{ultimo_temp_text}\n"
-        f"RELATÓRIO SM:\n{ultimo_sm_text}"
-    )
-    try:
-        resp = client.chat.completions.create(
-            model='gpt-4',
-            messages=[
-                {'role':'system','content':'Você é um especialista em cadeia fria.'},
-                {'role':'user','content':contexto},
-                {'role':'user','content':pergunta}
-            ]
-        )
-    except Exception as e:
-        logger.error(f'Erro GPT Chat: {e}')
-        return jsonify({'erro':'Falha no chat GPT'}), 500
-    return jsonify({'resposta': resp.choices[0].message.content.strip()})
-
-if __name__ == '__main__':
-    port = int(os.getenv('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
-```
-
----
-
-## index.html (sem alterações necessárias)
-
-```html
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>ColdChain Analytics</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <style>
-    body { font-family:sans-serif; padding:1rem; }
-    #grafico-container { width:100%; height:350px; margin:1rem 0; }
-    #graficoGPT { width:100% !important; height:100% !important; }
-    #loading { display:none; font-weight:bold; }
-  </style>
-</head>
-<body>
-  <h1>ColdChain Analytics</h1>
-  <p id="loading">Carregando serviço, aguarde...</p>
-  <form id="form" style="display:none;">
-    <label>Embarque:<input name="embarque" required></label>
-    <label>PDF Temp:<input type="file" name="temps" accept="application/pdf" required></label>
-    <label>PDF SM:<input type="file" name="sm" accept="application/pdf" required></label>
-    <button type="submit">Analisar</button>
-  </form>
-
-  <div id="output"></div>
-  <div id="grafico-container">
-    <canvas id="graficoGPT"></canvas>
-  </div>
-
-  <script>
-    const backend = 'https://coldchain-backend.onrender.com';
-    const form    = document.getElementById('form');
-    const loadMsg = document.getElementById('loading');
-    const ctx     = document.getElementById('graficoGPT').getContext('2d');
-    let chart     = null;
-
-    async function warmup() {
-      try {
-        loadMsg.style.display = 'block';
-        const resp = await fetch(`${backend}/health`);
-        if (resp.ok) {
-          loadMsg.style.display = 'none';
-          form.style.display = 'block';
-        } else throw 'Healthcheck falhou';
-      } catch (err) {
-        loadMsg.textContent = 'Erro ao conectar: ' + err;
-      }
-    }
-    warmup();
-
-    form.addEventListener('submit', async e => {
-      e.preventDefault();
-      document.getElementById('output').textContent = 'Analisando...';
-      try {
-        const res = await fetch(`${backend}/analisar`, {
-          method: 'POST', body: new FormData(form)
-        });
-        if (!res.ok) {
-          const txt = await res.text();
-          throw txt;
-        }
-        const j = await res.json();
-        document.getElementById('output').innerHTML = marked.parse(j.report_md);
-
-        const ds      = j.grafico.datasets;
-        const xLabels = ds.find(d=>d.type==='scatter').data.map(pt=>pt.x);
-        const cfg     = {
-          data: { datasets: ds },
-          options: {
-            parsing: { xAxisKey:'x', yAxisKey:'y' },
-            scales: {
-              x: { type:'category', labels:xLabels, ticks:{autoSkip:true,maxTicksLimit:15} },
-              y: {}
-            },
-            responsive:true,maintainAspectRatio:false
-          }
-        };
-        if (chart) chart.destroy();
-        chart = new Chart(ctx, cfg);
-      } catch (err) {
-        document.getElementById('output').textContent = 'Erro: ' + err;
-        console.error('Analisar falhou:', err);
-      }
-    });
-  </script>
-</body>
-</html>
-```
