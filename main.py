@@ -10,7 +10,7 @@ CORS(app)
 
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-# Variáveis globais temporárias (memória do último embarque)
+# Memória temporária para chat
 ultimo_embarque = None
 ultimo_temp_text = ""
 ultimo_sm_text = ""
@@ -27,77 +27,35 @@ def analisar():
     temp_pdf = request.files.get('temps')
     sm_pdf = request.files.get('sm')
 
-    # Simular extração de temperaturas para o gráfico
-# Em produção, extraia isso do PDF
-temperaturas = [6, 7, 8.5, 9, 7, 5, 3, 1.5, 2, 6]  # Exemplo
-labels = [f"{2*i} min" for i in range(len(temperaturas))]
-
-# Separar cores por valor
-datasets = [
-    {
-        "label": "Temperatura",
-        "data": temperaturas,
-        "borderColor": ["red" if t > 8 or t < 2 else "green" for t in temperaturas],
-        "backgroundColor": "transparent",
-        "pointBackgroundColor": ["red" if t > 8 or t < 2 else "green" for t in temperaturas],
-        "tension": 0.4,
-    },
-    {
-        "label": "Limite Máx (8°C)",
-        "data": [8]*len(temperaturas),
-        "borderColor": "rgba(255,0,0,0.3)",
-        "borderDash": [5, 5],
-        "pointRadius": 0,
-        "fill": False
-    },
-    {
-        "label": "Limite Mín (2°C)",
-        "data": [2]*len(temperaturas),
-        "borderColor": "rgba(0,0,255,0.3)",
-        "borderDash": [5, 5],
-        "pointRadius": 0,
-        "fill": False
-    }
-]
-
-grafico = {
-    "tipo": "line",
-    "labels": labels,
-    "datasets": datasets
-}
-
-# Incluir no retorno
-return jsonify({'report_md': resultado.strip(), 'grafico': grafico})
-
     if not embarque or not temp_pdf or not sm_pdf:
         return jsonify({'error': 'Faltam dados no formulário'}), 400
 
     try:
-        # Leitura do relatório de temperatura
+        # Leitura do PDF de temperatura
         temp_text = ''
         with fitz.open(stream=temp_pdf.read(), filetype="pdf") as doc:
             for page in doc:
                 temp_text += page.get_text()
 
-        # Leitura do SM
+        # Leitura do PDF do SM
         sm_text = ''
         sm_pdf.stream.seek(0)
         with pdfplumber.open(sm_pdf.stream) as pdf:
             for page in pdf.pages:
                 sm_text += page.extract_text() or ''
 
-        # Armazena na memória para uso posterior no chat
+        # Salvar para o chat
         ultimo_embarque = embarque
-        ultimo_temp_text = temp_text[:3000]  # limitar tamanho para o prompt
+        ultimo_temp_text = temp_text[:3000]
         ultimo_sm_text = sm_text[:3000]
 
-        # Prompt para cabeçalho e análise executiva
+        # Enviar prompt para GPT
         prompt = f"""
-Você é um analista técnico de cadeia fria. Gere um relatório executivo para o embarque abaixo, com os seguintes tópicos:
-1. Cabeçalho com Nome do Cliente, Origem e Destino (data/hora), se presentes no conteúdo.
-2. Breve resumo técnico da excursão de temperatura, se houver desvios.
-3. Pontos críticos encontrados.
-4. Se possível, sugerir melhorias preventivas.
+Você é um analista técnico de cadeia fria. Gere um relatório executivo para o embarque abaixo com:
+- Cabeçalho com Nome do Cliente, Origem e Destino (data/hora), se presentes no conteúdo.
+- Breve resumo técnico da excursão de temperatura, se houver desvios.
+- Pontos críticos encontrados.
+- Sugestões de melhoria.
 
 RELATÓRIO DE TEMPERATURA:
 {ultimo_temp_text}
@@ -105,7 +63,6 @@ RELATÓRIO DE TEMPERATURA:
 RELATÓRIO SM:
 {ultimo_sm_text}
 """
-
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
@@ -116,21 +73,46 @@ RELATÓRIO SM:
 
         gpt_response = response.choices[0].message.content.strip()
 
-        # Simulação de gráfico de temperatura
-        grafico_data = {
-            "tipo": "line",
-            "labels": ["00h", "06h", "12h", "18h"],
-            "datasets": [{
-                "label": "Temperatura (°C)",
-                "data": [2.5, 3.0, 4.1, 3.3],
-                "borderColor": "#007bff",
+        # Exemplo de gráfico com temperatura
+        temperaturas = [6, 7, 8.5, 9, 7, 5, 3, 1.5, 2, 6]
+        labels = [f"{2*i} min" for i in range(len(temperaturas))]
+
+        datasets = [
+            {
+                "label": "Temperatura",
+                "data": temperaturas,
+                "borderColor": ["red" if t > 8 or t < 2 else "green" for t in temperaturas],
+                "backgroundColor": "transparent",
+                "pointBackgroundColor": ["red" if t > 8 or t < 2 else "green" for t in temperaturas],
+                "tension": 0.4
+            },
+            {
+                "label": "Limite Máx (8°C)",
+                "data": [8]*len(temperaturas),
+                "borderColor": "rgba(255,0,0,0.3)",
+                "borderDash": [5, 5],
+                "pointRadius": 0,
                 "fill": False
-            }]
+            },
+            {
+                "label": "Limite Mín (2°C)",
+                "data": [2]*len(temperaturas),
+                "borderColor": "rgba(0,0,255,0.3)",
+                "borderDash": [5, 5],
+                "pointRadius": 0,
+                "fill": False
+            }
+        ]
+
+        grafico = {
+            "tipo": "line",
+            "labels": labels,
+            "datasets": datasets
         }
 
         return jsonify({
             'report_md': gpt_response,
-            'grafico': grafico_data
+            'grafico': grafico
         })
 
     except Exception as e:
@@ -160,7 +142,6 @@ RELATÓRIO DE TEMPERATURA:
 RELATÓRIO SM:
 {ultimo_sm_text}
 """
-
         resposta = client.chat.completions.create(
             model="gpt-4",
             messages=[
