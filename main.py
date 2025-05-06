@@ -75,7 +75,7 @@ RELATÓRIO SM:
 
         gpt_response = response.choices[0].message.content.strip()
 
-        # Exemplo de múltiplos sensores com timestamps reais
+        # Simulação de múltiplos sensores com timestamps reais e mudança de cor por faixa
         sensores = {
             "Sensor 1": [6.0, 7.0, 8.5, 9.1, 7.2, 5.0, 3.0, 1.5, 2.0, 6.2],
             "Sensor 2": [5.8, 6.5, 7.9, 8.3, 7.0, 6.0, 3.5, 2.5, 1.8, 2.3]
@@ -87,9 +87,14 @@ RELATÓRIO SM:
             datasets.append({
                 "label": nome_sensor,
                 "data": temperaturas,
-                "borderColor": ["red" if t > 8 or t < 2 else "green" for t in temperaturas],
-                "backgroundColor": "transparent",
-                "pointBackgroundColor": ["red" if t > 8 or t < 2 else "green" for t in temperaturas],
+                "segment": {
+                    "borderColor": {
+                        "fn": "function(ctx) { const v = ctx.p1.parsed.y; return (v < 2 || v > 8) ? 'red' : 'green'; }"
+                    }
+                },
+                "borderWidth": 2,
+                "fill": False,
+                "pointRadius": 2,
                 "tension": 0.4
             })
 
@@ -165,4 +170,3 @@ RELATÓRIO SM:
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
