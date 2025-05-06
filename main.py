@@ -1,149 +1,58 @@
 from flask import Flask, request, jsonify
-from flask_cors import CORS
-import pdfplumber
-import io
-import os
-import re
-import logging
-from openai import OpenAI
-from werkzeug.exceptions import HTTPException
+from werkzeug.utils import secure_filename
 
-# --- App setup ---
+from modules.extractor import extract_from_pdf, extract_from_image, extract_from_excel
+from modules.validator import validate_content
+from modules.reporter  import generate_report_md
+from modules.chart     import generate_chart_data
+
 app = Flask(__name__)
-CORS(app)
-
-# --- Logging ---
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# --- OpenAI client ---
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-# --- Global context for chat ---
-ultimo_embarque  = None
-ultimo_temp_text = ''
-ultimo_sm_text   = ''
-
-@app.route('/health', methods=['GET'])
-def health():
-    return jsonify({'status': 'ok'}), 200
 
 @app.route('/analisar', methods=['POST'])
 def analisar():
-    global ultimo_embarque, ultimo_temp_text, ultimo_sm_text
-    try:
-        # 1) Valida form
-        embarque  = request.form.get('embarque')
-        temp_file = request.files.get('temps')
-        sm_file   = request.files.get('sm')
-        if not embarque or not temp_file or not sm_file:
-            return jsonify({'error': 'Faltam dados no formulário'}), 400
+    # coleta arquivos
+    temp = request.files.get('relatorio_temp')
+    sm   = request.files.get('solicitacao_sm')
+    cte  = request.files.get('cte')  # opcional
+    if not temp or not sm:
+        return jsonify(error="Relatório de Temperatura e SM são obrigatórios"), 400
 
-        # 2) Lê PDFs
-        temp_bytes = temp_file.read()
-        sm_bytes   = sm_file.read()
+    to_proc = [('relatorio_temp',temp), ('solicitacao_sm',sm)]
+    if cte and cte.filename:
+        to_proc.append(('cte',cte))
 
-        # 3) Extrai texto bruto do SM só para limites
-        sm_text = ''
-        with pdfplumber.open(io.BytesIO(sm_bytes)) as pdf:
-            for p in pdf.pages:
-                sm_text += p.extract_text() or ''
+    extracted = {}
+    for tipo, f in to_proc:
+        fn  = secure_filename(f.filename)
+        ext = fn.rsplit('.',1)[-1].lower()
+        if ext not in ALLOWED_EXT:
+            return jsonify(error=f"Extensão não suportada: {fn}"), 400
 
-        # 4) Regex para limites X a Y °C
-        m = re.search(r'(\d+(?:[.,]\d+)?)\s*(?:a|até|–|-)\s*(\d+(?:[.,]\d+)?)\s*°?C', sm_text, re.IGNORECASE)
-        if m:
-            lim_min = float(m.group(1).replace(',', '.'))
-            lim_max = float(m.group(2).replace(',', '.'))
+        # extrai e valida
+        if ext == 'pdf':
+            text = extract_from_pdf(f)
+        elif ext in ('png','jpg','jpeg'):
+            text = extract_from_image(f)
         else:
-            lim_min, lim_max = 2.0, 8.0
+            text = extract_from_excel(f, ext)
 
-        # 5) Extrai medições de temperatura via regex do PDF de temperatura
-        temp_text = ''
-        with pdfplumber.open(io.BytesIO(temp_bytes)) as pdf:
-            for p in pdf.pages:
-                temp_text += p.extract_text() or ''
-        pts = re.findall(r'(\d{2}:\d{2})\s+(\d+(?:[.,]\d+)?)', temp_text)
-        labels = [t for t, _ in pts]
-        values = [float(v.replace(',', '.')) for _, v in pts]
+        try:
+            validate_content(text, fn, tipo)
+        except ValueError as e:
+            return jsonify(error=str(e)), 400
 
-        # 6) Constrói CSV em texto
-        csv_lines = ['timestamp,temperature']
-        for t, v in zip(labels, values):
-            csv_lines.append(f'{t},{v}')
-        csv_data = '\n'.join(csv_lines)
+        extracted[tipo] = text.replace("\r\n","\n")
 
-        # 7) Prepara prompt reduzido para GPT-4
-        prompt = f"""
-Você é um analista de cadeia fria. A seguir, os dados de temperatura em CSV:
+    # Etapa 1: relatório
+    report_md = generate_report_md(extracted)
 
-{csv_data}
+    # Etapa 2: gráfico opcional
+    gerar_graf = bool(request.form.get('gerar_grafico'))
+    grafico    = generate_chart_data(extracted) if gerar_graf else None
 
-A faixa controlada de temperatura é de {lim_min}°C a {lim_max}°C.
+    resp = {"report_md": report_md}
+    if grafico is not None:
+        resp["grafico"] = grafico
 
-Com base nisso, gere um relatório executivo contendo:
-- Cabeçalho (Cliente, Origem, Destino, Data)
-- Resumo de excursões
-- Pontos críticos
-- Sugestões
-"""
-        resp = client.chat.completions.create(
-            model='gpt-4',
-            messages=[
-                {'role':'system','content':'Você é um analista técnico de cadeia fria.'},
-                {'role':'user','content':prompt}
-            ]
-        )
-        report_md = resp.choices[0].message.content
+    return jsonify(resp)
 
-        # 8) Monta datasets para Chart.js
-        scatter_data = [{'x':lbl,'y':val} for lbl,val in zip(labels,values)]
-        scatter_colors = ['red' if (val<lim_min or val>lim_max) else '#006400' for val in values]
-        datasets = [
-            {'type':'scatter','label':'Sensor 1','data':scatter_data,
-             'pointBackgroundColor':scatter_colors,'pointRadius':4},
-            {'type':'line','label':f'Limite Máx ({lim_max}°C)',
-             'data':[{'x':lbl,'y':lim_max} for lbl in labels],
-             'borderColor':'rgba(255,0,0,0.4)','borderDash':[5,5],
-             'pointRadius':0,'fill':False},
-            {'type':'line','label':f'Limite Min ({lim_min}°C)',
-             'data':[{'x':lbl,'y':lim_min} for lbl in labels],
-             'borderColor':'rgba(0,0,255,0.4)','borderDash':[5,5],
-             'pointRadius':0,'fill':False}
-        ]
-
-        return jsonify({
-            'report_md': report_md,
-            'grafico': {'labels': labels, 'datasets': datasets}
-        })
-
-    except Exception as e:
-        logger.exception("Erro em /analisar:")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/chat', methods=['POST'])
-def chat():
-    data = request.get_json() or {}
-    pergunta = data.get('pergunta')
-    if not pergunta:
-        return jsonify({'erro':'Sem pergunta'}), 400
-
-    resp = client.chat.completions.create(
-        model='gpt-4',
-        messages=[
-            {'role':'system','content':'Você é especialista em cadeia fria.'},
-            {'role':'user','content':pergunta}
-        ]
-    )
-    return jsonify({'resposta': resp.choices[0].message.content})
-
-# converte erros não-HTTP em JSON
-@app.errorhandler(Exception)
-def handle_all(e):
-    if isinstance(e, HTTPException):
-        return e
-    logger.exception("Erro interno:")
-    return jsonify({'error': str(e)}), 500
-
-if __name__=='__main__':
-    port = int(os.getenv('PORT',5000))
-    app.run(host='0.0.0.0', port=port)
