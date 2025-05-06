@@ -1,15 +1,26 @@
-import os    
+import os
 from flask import Flask, request, jsonify
+from flask_cors import CORS              # ← importa CORS
 from werkzeug.utils import secure_filename
 
-from modules.extractor import extract_from_pdf, extract_from_image, extract_from_excel, ALLOWED_EXT
+from modules.extractor import (
+    extract_from_pdf,
+    extract_from_image,
+    extract_from_excel,
+    ALLOWED_EXT
+)
 from modules.validator import validate_content
 from modules.reporter  import generate_report_md
 from modules.chart     import generate_chart_data
 
 app = Flask(__name__)
+CORS(app)                                # ← libera CORS para todas as origens
 
-@app.route('/analisar', methods=['POST'])
+# Health-check simples
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify(status="ok"), 200
+
 def analisar():
     # coleta arquivos
     temp = request.files.get('relatorio_temp')
