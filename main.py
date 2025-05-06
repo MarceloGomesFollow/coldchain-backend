@@ -49,13 +49,15 @@ def analisar():
         ultimo_temp_text = temp_text[:3000]
         ultimo_sm_text = sm_text[:3000]
 
-        # Enviar prompt para GPT
+        # Prompt com extração automática de dados
         prompt = f"""
 Você é um analista técnico de cadeia fria. Gere um relatório executivo para o embarque abaixo com:
 - Cabeçalho com Nome do Cliente, Origem e Destino (data/hora), se presentes no conteúdo.
 - Breve resumo técnico da excursão de temperatura, se houver desvios.
 - Pontos críticos encontrados.
 - Sugestões de melhoria.
+
+Use os textos a seguir para extrair e compor os dados:
 
 RELATÓRIO DE TEMPERATURA:
 {ultimo_temp_text}
@@ -158,4 +160,3 @@ RELATÓRIO SM:
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
