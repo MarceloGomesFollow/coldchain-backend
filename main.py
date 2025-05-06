@@ -76,20 +76,19 @@ RELATÓRIO SM:
 
         gpt_response = response.choices[0].message.content.strip()
 
-        # Simulação de múltiplos sensores com timestamps reais
-        sensores = {
+        # Simular leitura dinâmica de sensores
+        sensores_detectados = {
             "Sensor 1": [6.0, 7.0, 8.5, 9.1, 7.2, 5.0, 3.0, 1.5, 2.0, 6.2],
             "Sensor 2": [5.8, 6.5, 7.9, 8.3, 7.0, 6.0, 3.5, 2.5, 1.8, 2.3],
-            "Sensor 3": [6.1, 6.9, 7.4, 7.9, 7.1, 5.8, 4.0, 2.0, 1.6, 2.5]
         }
-        timestamps = [f"15:{25 + i*2:02d}" for i in range(len(next(iter(sensores.values()))))]
+        timestamps = [f"15:{25 + i*2:02d}" for i in range(len(next(iter(sensores_detectados.values()))))]
 
         limite_min = 2.0
         limite_max = 8.0
 
         cores = ["#006400", "#00aa00", "#00cc44"]
         datasets = []
-        for idx, (nome_sensor, temperaturas) in enumerate(sensores.items()):
+        for idx, (nome_sensor, temperaturas) in enumerate(sensores_detectados.items()):
             datasets.append({
                 "label": nome_sensor,
                 "data": temperaturas,
