@@ -8,8 +8,12 @@ from openai import OpenAI
 app = Flask(__name__)
 CORS(app)
 
-# Cliente da API OpenAI
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+# Variáveis globais temporárias (memória do último embarque)
+ultimo_embarque = None
+ultimo_temp_text = ""
+ultimo_sm_text = ""
 
 @app.route('/')
 def home():
@@ -17,6 +21,8 @@ def home():
 
 @app.route('/analisar', methods=['POST'])
 def analisar():
+    global ultimo_embarque, ultimo_temp_text, ultimo_sm_text
+
     embarque = request.form.get('embarque')
     temp_pdf = request.files.get('temps')
     sm_pdf = request.files.get('sm')
@@ -25,28 +31,33 @@ def analisar():
         return jsonify({'error': 'Faltam dados no formulário'}), 400
 
     try:
-        # Extrair texto do relatório de temperatura
+        # Leitura do relatório de temperatura
         temp_text = ''
         with fitz.open(stream=temp_pdf.read(), filetype="pdf") as doc:
             for page in doc:
                 temp_text += page.get_text()
 
-        # Extrair texto do SM
+        # Leitura do SM
         sm_text = ''
         sm_pdf.stream.seek(0)
         with pdfplumber.open(sm_pdf.stream) as pdf:
             for page in pdf.pages:
                 sm_text += page.extract_text() or ''
 
-        # Enviar conteúdo para GPT
+        # Armazena na memória para uso posterior no chat
+        ultimo_embarque = embarque
+        ultimo_temp_text = temp_text[:3000]  # limitar tamanho para o prompt
+        ultimo_sm_text = sm_text[:3000]
+
+        # Prompt para análise
         prompt = f"""
-A seguir estão trechos de dois relatórios em PDF para o embarque '{embarque}'. Gere um resumo técnico com foco em desvios de temperatura e pontos críticos:
+Você é um analista técnico de cadeia fria. Gere um resumo técnico com foco em desvios de temperatura e pontos críticos.
 
 RELATÓRIO DE TEMPERATURA:
-{temp_text[:2000]}
+{ultimo_temp_text}
 
 RELATÓRIO SM:
-{sm_text[:2000]}
+{ultimo_sm_text}
 """
 
         response = client.chat.completions.create(
@@ -56,19 +67,8 @@ RELATÓRIO SM:
                 {"role": "user", "content": prompt}
             ]
         )
-        gpt_response = response.choices[0].message.content.strip()
 
-        # Simular gráfico de temperatura
-        grafico = {
-            "tipo": "line",
-            "labels": ["08:00", "09:00", "10:00", "11:00"],
-            "datasets": [{
-                "label": "Temperatura (°C)",
-                "data": [5, 7, 6.5, 8],
-                "borderColor": "blue",
-                "fill": False
-            }]
-        }
+        gpt_response = response.choices[0].message.content.strip()
 
         resultado = f"""
 ### Relatório ColdChain
@@ -76,33 +76,48 @@ RELATÓRIO SM:
 **Embarque:** {embarque}
 
 #### Resumo do Relatório de Temperatura:
-{temp_text.strip()[:1000] or 'Nenhum dado encontrado.'}
+{ultimo_temp_text[:1000] or 'Nenhum dado encontrado.'}
 
 #### Resumo do SM:
-{sm_text.strip()[:1000] or 'Nenhum dado encontrado.'}
+{ultimo_sm_text[:1000] or 'Nenhum dado encontrado.'}
 
 #### Análise da IA:
 {gpt_response}
 """
-
-        return jsonify({'report_md': resultado.strip(), 'grafico': grafico})
-
+        return jsonify({'report_md': resultado.strip()})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/chat', methods=['POST'])
 def chat():
+    global ultimo_embarque, ultimo_temp_text, ultimo_sm_text
+
     data = request.get_json()
     pergunta = data.get("pergunta")
 
     if not pergunta:
         return jsonify({"erro": "Pergunta não enviada."}), 400
 
+    if not ultimo_embarque:
+        return jsonify({"erro": "Nenhum embarque foi analisado ainda."}), 400
+
     try:
+        contexto = f"""
+Você está ajudando com o embarque: {ultimo_embarque}.
+Use os dados abaixo para responder com precisão:
+
+RELATÓRIO DE TEMPERATURA:
+{ultimo_temp_text}
+
+RELATÓRIO SM:
+{ultimo_sm_text}
+"""
+
         resposta = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "Você é um especialista em cadeia fria e logística de temperatura."},
+                {"role": "system", "content": "Você é um especialista técnico em cadeia fria e transporte refrigerado."},
+                {"role": "user", "content": contexto},
                 {"role": "user", "content": pergunta}
             ]
         )
