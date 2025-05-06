@@ -82,7 +82,7 @@ def analisar():
             sensor_data = {'Sensor 1': [6,7,8,9,7,5,3,1,2,6]}
             timestamps   = [f"00:{i*2:02d}" for i in range(len(sensor_data['Sensor 1']))]
 
-        # 4) Prompt unificado ao GPT-4
+        # 4) Unified prompt ao GPT-4 (inclui identificação de limites)
         unified_prompt = f"""
 Você é um analista técnico de cadeia fria. Execute as seguintes tarefas:
 1) Identifique faixas de temperatura controlada (ex: 2 a 8 °C).
@@ -110,9 +110,9 @@ RELATÓRIO SM:
         conteudo = resp.choices[0].message.content
 
         # 5) Extrair limites via regex do texto retornado
-        match = re.search(r"(\d+(?:\.\d+)?)\s*[aà-]+\s*(\d+(?:\.\d+)?)", conteudo)
-        limite_min = float(match.group(1)) if match else 2.0
-        limite_max = float(match.group(2)) if match else 8.0
+        match = re.search(r"(\d+(?:[.,]\d+)?)\s*[aà-]+\s*(\d+(?:[.,]\d+)?)", conteudo)
+        limite_min = float(match.group(1).replace(',', '.')) if match else 2.0
+        limite_max = float(match.group(2).replace(',', '.')) if match else 8.0
 
         report_md = conteudo
 
@@ -138,6 +138,7 @@ RELATÓRIO SM:
                 'tension': 0.4
             })
 
+        # linhas de limite
         datasets += [
             {
                 'label': f"Limite Máx ({limite_max}°C)",
