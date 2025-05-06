@@ -75,40 +75,45 @@ RELATÓRIO SM:
 
         gpt_response = response.choices[0].message.content.strip()
 
-        # Exemplo de gráfico com temperatura
-        temperaturas = [6, 7, 8.5, 9, 7, 5, 3, 1.5, 2, 6]
-        labels = [f"{2*i} min" for i in range(len(temperaturas))]
+        # Exemplo de múltiplos sensores com timestamps reais
+        sensores = {
+            "Sensor 1": [6.0, 7.0, 8.5, 9.1, 7.2, 5.0, 3.0, 1.5, 2.0, 6.2],
+            "Sensor 2": [5.8, 6.5, 7.9, 8.3, 7.0, 6.0, 3.5, 2.5, 1.8, 2.3]
+        }
+        timestamps = [f"15:{25 + i*2:02d}" for i in range(len(next(iter(sensores.values()))))]
 
-        datasets = [
-            {
-                "label": "Temperatura",
+        datasets = []
+        for nome_sensor, temperaturas in sensores.items():
+            datasets.append({
+                "label": nome_sensor,
                 "data": temperaturas,
                 "borderColor": ["red" if t > 8 or t < 2 else "green" for t in temperaturas],
                 "backgroundColor": "transparent",
                 "pointBackgroundColor": ["red" if t > 8 or t < 2 else "green" for t in temperaturas],
                 "tension": 0.4
-            },
-            {
-                "label": "Limite Máx (8°C)",
-                "data": [8]*len(temperaturas),
-                "borderColor": "rgba(255,0,0,0.3)",
-                "borderDash": [5, 5],
-                "pointRadius": 0,
-                "fill": False
-            },
-            {
-                "label": "Limite Mín (2°C)",
-                "data": [2]*len(temperaturas),
-                "borderColor": "rgba(0,0,255,0.3)",
-                "borderDash": [5, 5],
-                "pointRadius": 0,
-                "fill": False
-            }
-        ]
+            })
+
+        datasets.append({
+            "label": "Limite Máx (8°C)",
+            "data": [8]*len(timestamps),
+            "borderColor": "rgba(255,0,0,0.3)",
+            "borderDash": [5, 5],
+            "pointRadius": 0,
+            "fill": False
+        })
+
+        datasets.append({
+            "label": "Limite Mín (2°C)",
+            "data": [2]*len(timestamps),
+            "borderColor": "rgba(0,0,255,0.3)",
+            "borderDash": [5, 5],
+            "pointRadius": 0,
+            "fill": False
+        })
 
         grafico = {
             "tipo": "line",
-            "labels": labels,
+            "labels": timestamps,
             "datasets": datasets
         }
 
@@ -160,3 +165,4 @@ RELATÓRIO SM:
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
