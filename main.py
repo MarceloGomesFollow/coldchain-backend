@@ -49,7 +49,7 @@ def analisar():
         ultimo_temp_text = temp_text[:3000]
         ultimo_sm_text = sm_text[:3000]
 
-        # Prompt com extração automática de dados e faixas de temperatura
+        # Prompt para gerar relatório com base nos arquivos
         prompt = f"""
 Você é um analista técnico de cadeia fria. Gere um relatório executivo para o embarque abaixo com:
 - Cabeçalho com Nome do Cliente, Origem e Destino (data/hora), se presentes no conteúdo.
@@ -76,11 +76,12 @@ RELATÓRIO SM:
 
         gpt_response = response.choices[0].message.content.strip()
 
-        # Simular leitura dinâmica de sensores
+        # Simulação: sensores múltiplos e timestamps gerados a cada 2 minutos
         sensores_detectados = {
             "Sensor 1": [6.0, 7.0, 8.5, 9.1, 7.2, 5.0, 3.0, 1.5, 2.0, 6.2],
-            "Sensor 2": [5.8, 6.5, 7.9, 8.3, 7.0, 6.0, 3.5, 2.5, 1.8, 2.3],
+            "Sensor 2": [5.8, 6.5, 7.9, 8.3, 7.0, 6.0, 3.5, 2.5, 1.8, 2.3]
         }
+
         timestamps = [f"15:{25 + i*2:02d}" for i in range(len(next(iter(sensores_detectados.values()))))]
 
         limite_min = 2.0
@@ -88,20 +89,28 @@ RELATÓRIO SM:
 
         cores = ["#006400", "#00aa00", "#00cc44"]
         datasets = []
+
         for idx, (nome_sensor, temperaturas) in enumerate(sensores_detectados.items()):
             datasets.append({
                 "label": nome_sensor,
                 "data": temperaturas,
                 "borderColor": cores[idx % len(cores)],
                 "backgroundColor": "transparent",
-                "pointBackgroundColor": ["red" if t < limite_min or t > limite_max else cores[idx % len(cores)] for t in temperaturas],
-                "pointRadius": [6 if t < limite_min or t > limite_max else 3 for t in temperaturas],
+                "pointBackgroundColor": [
+                    "red" if t < limite_min or t > limite_max else cores[idx % len(cores)]
+                    for t in temperaturas
+                ],
+                "pointRadius": [
+                    6 if t < limite_min or t > limite_max else 3
+                    for t in temperaturas
+                ],
                 "pointStyle": "circle",
                 "borderWidth": 2,
                 "fill": False,
                 "tension": 0.4
             })
 
+        # Linhas de referência
         datasets.append({
             "label": f"Limite Máx ({limite_max}°C)",
             "data": [limite_max]*len(timestamps),
