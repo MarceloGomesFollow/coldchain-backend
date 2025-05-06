@@ -169,7 +169,7 @@ PDF SM:
         }
     ]
 
-    return jsonify({'report_md': texto, 'grafico': {'datasets': datasets}})
+    return jsonify({'report_md': texto, 'grafico': {'datasets': datasets}
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
