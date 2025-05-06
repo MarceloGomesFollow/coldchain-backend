@@ -12,10 +12,8 @@ REQUIRED_FIELDS = {
         "monitoramento",
         "sm"
     ],
-    'cte': [
-        "conhecimento",
-        "embarque",
-        "cte"
+    if tipo != 'cte':
+    validate_content(text, fn, tipo)
     ]
 }
 
