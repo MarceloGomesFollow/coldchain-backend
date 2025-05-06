@@ -8,7 +8,7 @@ from openai import OpenAI
 
 # Inicialização do Flask
 app = Flask(__name__)
-CORS(app)  # Permite requisições de qualquer origem
+CORS(app)  # Habilita CORS para todas as origens
 
 # Cliente da API OpenAI
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
@@ -18,18 +18,22 @@ ultimo_embarque  = None
 ultimo_temp_text = ''
 ultimo_sm_text   = ''
 
+@app.route('/health', methods=['GET'])
+def health():
+    """Healthcheck para wake-up e monitoramento."""
+    return 'OK', 200
+
 @app.route('/analisar', methods=['POST'])
 def analisar():
     global ultimo_embarque, ultimo_temp_text, ultimo_sm_text
 
-    # Obtém dados do formulário
     embarque  = request.form.get('embarque')
     temp_file = request.files.get('temps')
     sm_file   = request.files.get('sm')
     if not embarque or not temp_file or not sm_file:
         return jsonify({'error': 'Faltam dados no formulário'}), 400
 
-    # Lê os arquivos PDF em memória
+    # Lê PDFs
     temp_bytes = temp_file.read()
     sm_bytes   = sm_file.read()
 
@@ -40,23 +44,23 @@ def analisar():
             temp_text += page.extract_text() or ''
             tables += page.extract_tables()
 
-    # Extrai texto do PDF de SM
+    # Extrai texto do PDF SM
     sm_text = ''
     with pdfplumber.open(io.BytesIO(sm_bytes)) as pdf:
         for page in pdf.pages:
             sm_text += page.extract_text() or ''
 
-    # Atualiza contexto para o endpoint /chat
+    # Armazena contexto para /chat
     ultimo_embarque  = embarque
     ultimo_temp_text = temp_text
     ultimo_sm_text   = sm_text
 
-    # Captura medições de temperatura via regex
+    # Pega medições via regex no texto de temperatura
     pts = re.findall(r'(\d{2}:\d{2})\s+(\d+(?:[.,]\d+)?)', temp_text)
     labels = [t for t, _ in pts]
     values = [float(v.replace(',', '.')) for _, v in pts]
 
-    # Captura faixa de temperatura controlada no texto SM
+    # Pega faixa de temperatura controlada no texto SM
     match_faixa = re.search(
         r'[Ff]aixa.*?(\d+(?:[.,]\d+)?)°?C.*?(\d+(?:[.,]\d+)?)°?C',
         sm_text,
@@ -66,10 +70,9 @@ def analisar():
         lim_min = float(match_faixa.group(1).replace(',', '.'))
         lim_max = float(match_faixa.group(2).replace(',', '.'))
     else:
-        # Fallback padrão
-        lim_min, lim_max = 2.0, 8.0
+        lim_min, lim_max = 2.0, 8.0  # fallback padrão
 
-    # Monta os datasets para Chart.js
+    # Monta datasets para Chart.js
     scatter_data = [{'x': lbl, 'y': val} for lbl, val in zip(labels, values)]
     scatter_colors = [
         'red' if (val < lim_min or val > lim_max) else '#006400'
@@ -107,17 +110,16 @@ def analisar():
         }
     ]
 
-    # Gera o relatório executivo via GPT-4
+    # Gera relatório executivo via GPT-4
     resp = client.chat.completions.create(
         model='gpt-4',
         messages=[
             {'role': 'system', 'content': 'Você é um analista técnico de cadeia fria.'},
-            {'role': 'user', 'content': f'Analise estes textos e gere relatório executivo:\nTEMP:{temp_text}\nSM:{sm_text}'}
+            {'role': 'user',   'content': f'Analise estes textos e gere relatório executivo:\nTEMP:{temp_text}\nSM:{sm_text}'}
         ]
     )
     report_md = resp.choices[0].message.content
 
-    # Retorna JSON com relatório e dados do gráfico
     return jsonify({
         'report_md': report_md,
         'grafico': {
@@ -137,8 +139,8 @@ def chat():
         model='gpt-4',
         messages=[
             {'role': 'system', 'content': 'Você é especialista em cadeia fria.'},
-            {'role': 'user', 'content': f'{ultimo_temp_text}\n{ultimo_sm_text}'},
-            {'role': 'user', 'content': pergunta}
+            {'role': 'user',   'content': f'{ultimo_temp_text}\n{ultimo_sm_text}'},
+            {'role': 'user',   'content': pergunta}
         ]
     )
     return jsonify({'resposta': resp.choices[0].message.content})
