@@ -27,6 +27,48 @@ def analisar():
     temp_pdf = request.files.get('temps')
     sm_pdf = request.files.get('sm')
 
+    # Simular extração de temperaturas para o gráfico
+# Em produção, extraia isso do PDF
+temperaturas = [6, 7, 8.5, 9, 7, 5, 3, 1.5, 2, 6]  # Exemplo
+labels = [f"{2*i} min" for i in range(len(temperaturas))]
+
+# Separar cores por valor
+datasets = [
+    {
+        "label": "Temperatura",
+        "data": temperaturas,
+        "borderColor": ["red" if t > 8 or t < 2 else "green" for t in temperaturas],
+        "backgroundColor": "transparent",
+        "pointBackgroundColor": ["red" if t > 8 or t < 2 else "green" for t in temperaturas],
+        "tension": 0.4,
+    },
+    {
+        "label": "Limite Máx (8°C)",
+        "data": [8]*len(temperaturas),
+        "borderColor": "rgba(255,0,0,0.3)",
+        "borderDash": [5, 5],
+        "pointRadius": 0,
+        "fill": False
+    },
+    {
+        "label": "Limite Mín (2°C)",
+        "data": [2]*len(temperaturas),
+        "borderColor": "rgba(0,0,255,0.3)",
+        "borderDash": [5, 5],
+        "pointRadius": 0,
+        "fill": False
+    }
+]
+
+grafico = {
+    "tipo": "line",
+    "labels": labels,
+    "datasets": datasets
+}
+
+# Incluir no retorno
+return jsonify({'report_md': resultado.strip(), 'grafico': grafico})
+
     if not embarque or not temp_pdf or not sm_pdf:
         return jsonify({'error': 'Faltam dados no formulário'}), 400
 
