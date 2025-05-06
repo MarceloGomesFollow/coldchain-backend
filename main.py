@@ -147,3 +147,66 @@ RELATÓRIO SM:
             {
                 'label': f"Limite Máx ({limite_max}°C)",
                 'data': [limite_max] * len(timestamps),
+                'borderColor': 'rgba(255,0,0,0.3)',
+                'borderDash': [5,5],
+                'pointRadius': 0,
+                'fill': False
+            },
+            {
+                'label': f"Limite Min ({limite_min}°C)",
+                'data': [limite_min] * len(timestamps),
+                'borderColor': 'rgba(0,0,255,0.3)',
+                'borderDash': [5,5],
+                'pointRadius': 0,
+                'fill': False
+            }
+        ]
+
+        grafico = {
+            'tipo': 'line',
+            'labels': timestamps,
+            'datasets': datasets
+        }
+
+        return jsonify({'report_md': report_md, 'grafico': grafico})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/chat', methods=['POST'])
+def chat():
+    global ultimo_embarque, ultimo_temp_text, ultimo_sm_text
+
+    data     = request.get_json()
+    pergunta = data.get('pergunta')
+    if not pergunta:
+        return jsonify({'erro': 'Pergunta não enviada.'}), 400
+    if not ultimo_embarque:
+        return jsonify({'erro': 'Nenhum embarque analisado.'}), 400
+
+    try:
+        contexto = f"""Você está ajudando com o embarque: {ultimo_embarque}.
+Use os dados abaixo:
+RELATÓRIO DE TEMPERATURA:
+{ultimo_temp_text}
+
+RELATÓRIO SM:
+{ultimo_sm_text}"""
+        resp = client.chat.completions.create(
+            model='gpt-4',
+            messages=[
+                {'role':'system','content':'Você é um especialista em cadeia fria.'},
+                {'role':'user',  'content': contexto},
+                {'role':'user',  'content': pergunta}
+            ]
+        )
+        return jsonify({'resposta': resp.choices[0].message.content.strip()})
+    except Exception as e:
+        return jsonify({'erro': str(e)}), 500
+
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
+
