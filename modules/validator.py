@@ -14,8 +14,7 @@ REQUIRED_FIELDS = {
     ],
     'cte': [
         "conhecimento",
-        "embarque",
-        "cte"
+        
     ]
 }
 
