@@ -3,11 +3,16 @@
 ```python
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import pdfplumber, io, os, re, logging
+import pdfplumber
+import io
+import os
+import re
+import logging
 from openai import OpenAI
 
-app = Flask(__name__)
-# Habilita CORS para todas origens
+# Inicialização do app Flask
+a<|>pp = Flask(__name__)
+# Habilita CORS para todas as origens
 CORS(app)
 
 # Configura logging para STDOUT (Render captura logs)
@@ -15,7 +20,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Cliente OpenAI
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Contexto para chat
 ultimo_embarque  = None
@@ -98,7 +103,7 @@ def analisar():
         sensor_data['Sensor 1'] = [6,7,8,9,7,5,3,1,2,6]
         timestamps = [f"00:{i*2:02d}" for i in range(len(sensor_data['Sensor 1']))]
 
-    # Monta e envia prompt unificado ao GPT-4
+    # Monta prompt unificado para GPT-4
     prompt = f"""
 Você é um analista de cadeia fria.
 1) Identifique faixas de temperatura controlada (ex: 2 a 8 °C).
@@ -134,10 +139,10 @@ PDF SM:
     else:
         lim_min, lim_max = 2.0, 8.0
 
-    # Prepara datasets para Chart.js: scatter para sensor, linhas para limites
-    pts = sensor_data['Sensor 1']
-    scatter_pts = [{'x':ts, 'y':pts[i]} for i, ts in enumerate(timestamps)]
-    point_colors = ['red' if (v<lim_min or v>lim_max) else '#006400' for v in pts]
+    # Prepara datasets para Chart.js
+    pts = sensor_data.get('Sensor 1', [])
+    scatter_pts = [{'x': ts, 'y': pts[i]} for i, ts in enumerate(timestamps)]
+    point_colors = ['red' if (v < lim_min or v > lim_max) else '#006400' for v in pts]
 
     datasets = [
         {
@@ -150,7 +155,7 @@ PDF SM:
         {
             'type': 'line',
             'label': f'Limite Máx ({lim_max}°C)',
-            'data': [{'x':ts, 'y':lim_max} for ts in timestamps],
+            'data': [{'x': ts, 'y': lim_max} for ts in timestamps],
             'borderColor': 'rgba(255,0,0,0.4)',
             'borderDash': [5,5],
             'pointRadius': 0,
@@ -159,7 +164,7 @@ PDF SM:
         {
             'type': 'line',
             'label': f'Limite Min ({lim_min}°C)',
-            'data': [{'x':ts, 'y':lim_min} for ts in timestamps],
+            'data': [{'x': ts, 'y': lim_min} for ts in timestamps],
             'borderColor': 'rgba(0,0,255,0.4)',
             'borderDash': [5,5],
             'pointRadius': 0,
@@ -194,15 +199,14 @@ def chat():
         return jsonify({'erro':'Falha no chat GPT'}), 500
     return jsonify({'resposta': resp.choices[0].message.content.strip()})
 
-if __name__=='__main__':
-    # Porta configurável no Render
-    port = int(os.environ.get('PORT', 5000))
+if __name__ == '__main__':
+    port = int(os.getenv('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
 ```
 
 ---
 
-## index.html (adiciona warm-up e logs JS)
+## index.html (sem alterações necessárias)
 
 ```html
 <!DOCTYPE html>
@@ -242,7 +246,6 @@ if __name__=='__main__':
     const ctx     = document.getElementById('graficoGPT').getContext('2d');
     let chart     = null;
 
-    // Warm-up: verifica health e só mostra o form após OK
     async function warmup() {
       try {
         loadMsg.style.display = 'block';
@@ -271,7 +274,6 @@ if __name__=='__main__':
         const j = await res.json();
         document.getElementById('output').innerHTML = marked.parse(j.report_md);
 
-        // Prepara gráfico
         const ds      = j.grafico.datasets;
         const xLabels = ds.find(d=>d.type==='scatter').data.map(pt=>pt.x);
         const cfg     = {
@@ -280,9 +282,9 @@ if __name__=='__main__':
             parsing: { xAxisKey:'x', yAxisKey:'y' },
             scales: {
               x: { type:'category', labels:xLabels, ticks:{autoSkip:true,maxTicksLimit:15} },
-              y: {} 
+              y: {}
             },
-            responsive:true, maintainAspectRatio:false
+            responsive:true,maintainAspectRatio:false
           }
         };
         if (chart) chart.destroy();
