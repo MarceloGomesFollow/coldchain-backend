@@ -28,7 +28,6 @@ def analisar():
     if not embarque or not temp_file or not sm_file:
         return jsonify({'error': 'Faltam dados no formulário'}), 400
 
-    # Ler bytes para reutilização
     temp_bytes = temp_file.read()
     sm_bytes   = sm_file.read()
 
@@ -56,14 +55,12 @@ def analisar():
         sensor_data = {}
         timestamps  = []
 
-        # Tenta regex no texto
         matches = re.findall(r'(\d{2}:\d{2})\s+(\d+(?:[.,]\d+)?)', temp_text)
         if matches:
             times, vals = zip(*[(t, float(v.replace(',', '.'))) for t, v in matches])
             timestamps = list(times)
             sensor_data['Sensor 1'] = list(vals)
         else:
-            # Fallback via tabelas
             for table in tables:
                 headers = table[0]
                 if not headers or not any('sensor' in str(h).lower() for h in headers):
@@ -81,7 +78,6 @@ def analisar():
                         except:
                             pass
 
-        # Se ainda vazio, usa fallback simulado
         if not sensor_data:
             sensor_data = {'Sensor 1': [6,7,8,9,7,5,3,1,2,6]}
             timestamps   = [f"00:{i*2:02d}" for i in range(len(sensor_data['Sensor 1']))]
@@ -142,7 +138,6 @@ RELATÓRIO SM:
                 'tension': 0.4
             })
 
-        # Linhas de limite
         datasets += [
             {
                 'label': f"Limite Máx ({limite_max}°C)",
@@ -209,4 +204,3 @@ RELATÓRIO SM:
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
-
