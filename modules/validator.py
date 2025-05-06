@@ -2,24 +2,33 @@
 
 REQUIRED_FIELDS = {
     'relatorio_temp': [
-        # antes:
-        # "Temperatura",
         # se no PDF vier abreviado ou com acento diferente, substitua por:
-        "Temp",      # vai cobrir "Temp:" ou "Temp. (°C)"
-        "Data",
-        "Hora"
+        "temp",      # estamos usando lowercase para comparação case-insensitive
+        "data",
+        "hora"
     ],
-    'solicitacao_sm': ["Solicitação", "Monitoramento", "SM"],
-    'cte':            ["Conhecimento", "Embarque", "CTE"]
+    'solicitacao_sm': [
+        "solicitação",
+        "monitoramento",
+        "sm"
+    ],
+    'cte': [
+        "conhecimento",
+        "embarque",
+        "cte"
+    ]
+}
 
-    def validate_content(text, filename, tipo):
+def validate_content(text: str, filename: str, tipo: str):
+    """
+    Garante que todos os campos em REQUIRED_FIELDS[tipo] estejam presentes em text.
+    Faz a checagem em lowercase para ignorar caixa alta/baixa.
+    """
     text_low = text.lower()
     missing = []
     for campo in REQUIRED_FIELDS[tipo]:
-        if campo.lower() not in text_low:
+        if campo not in text_low:
             missing.append(campo)
     if missing:
-        raise ValueError(f"{filename} está faltando campos: {', '.join(missing)}")
-
-}
-
+        campos_str = ", ".join(missing)
+        raise ValueError(f"{filename} está faltando campos: {campos_str}")
