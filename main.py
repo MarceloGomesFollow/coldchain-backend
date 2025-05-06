@@ -75,7 +75,7 @@ RELATÓRIO SM:
 
         gpt_response = response.choices[0].message.content.strip()
 
-        # Simulação de múltiplos sensores com timestamps reais e mudança de cor por faixa
+        # Simulação de múltiplos sensores com timestamps reais
         sensores = {
             "Sensor 1": [6.0, 7.0, 8.5, 9.1, 7.2, 5.0, 3.0, 1.5, 2.0, 6.2],
             "Sensor 2": [5.8, 6.5, 7.9, 8.3, 7.0, 6.0, 3.5, 2.5, 1.8, 2.3]
@@ -84,17 +84,17 @@ RELATÓRIO SM:
 
         datasets = []
         for nome_sensor, temperaturas in sensores.items():
-    datasets.append({
-        "label": nome_sensor,
-        "data": temperaturas,
-        "borderColor": "green",
-        "backgroundColor": "transparent",
-        "pointBackgroundColor": ["red" if t < 2 or t > 8 else "green" for t in temperaturas],
-        "borderWidth": 2,
-        "fill": False,
-        "pointRadius": 2,
-        "tension": 0.4
-    })
+            datasets.append({
+                "label": nome_sensor,
+                "data": temperaturas,
+                "borderColor": "green",
+                "backgroundColor": "transparent",
+                "pointBackgroundColor": ["red" if t < 2 or t > 8 else "green" for t in temperaturas],
+                "borderWidth": 2,
+                "fill": False,
+                "pointRadius": 2,
+                "tension": 0.4
+            })
 
         datasets.append({
             "label": "Limite Máx (8°C)",
