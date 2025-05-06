@@ -1,6 +1,6 @@
 import os
 from flask import Flask, request, jsonify
-from flask_cors import CORS              # ← importa CORS
+from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
 from modules.extractor import (
@@ -14,22 +14,30 @@ from modules.reporter  import generate_report_md
 from modules.chart     import generate_chart_data
 
 app = Flask(__name__)
-CORS(app)                                # ← libera CORS para todas as origens
+CORS(app)  # libera CORS para todas as origens
 
 # Health-check simples
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify(status="ok"), 200
 
+# Rota principal de análise
+@app.route('/analisar', methods=['POST'])
 def analisar():
-    # coleta arquivos
+    # 1) Coleta arquivos do form
     temp = request.files.get('relatorio_temp')
     sm   = request.files.get('solicitacao_sm')
     cte  = request.files.get('cte')  # opcional
+
+    # 2) Verifica obrigatoriedade
     if not temp or not sm:
         return jsonify(error="Relatório de Temperatura e SM são obrigatórios"), 400
 
-    to_proc = [('relatorio_temp', temp), ('solicitacao_sm', sm)]
+    # 3) Prepara lista de arquivos a processar
+    to_proc = [
+        ('relatorio_temp', temp),
+        ('solicitacao_sm', sm)
+    ]
     if cte and cte.filename:
         to_proc.append(('cte', cte))
 
@@ -37,10 +45,12 @@ def analisar():
     for tipo, f in to_proc:
         fn  = secure_filename(f.filename)
         ext = fn.rsplit('.', 1)[-1].lower()
+
+        # 4) Valida extensão
         if ext not in ALLOWED_EXT:
             return jsonify(error=f"Extensão não suportada: {fn}"), 400
 
-        # extrai e valida
+        # 5) Extrai o conteúdo
         if ext == 'pdf':
             text = extract_from_pdf(f)
         elif ext in ('png','jpg','jpeg'):
@@ -48,6 +58,7 @@ def analisar():
         else:
             text = extract_from_excel(f, ext)
 
+        # 6) Valida campos obrigatórios no texto
         try:
             validate_content(text, fn, tipo)
         except ValueError as e:
@@ -55,13 +66,14 @@ def analisar():
 
         extracted[tipo] = text.replace("\r\n", "\n")
 
-    # Etapa 1: relatório
+    # 7) Gera o relatório em Markdown
     report_md = generate_report_md(extracted)
 
-    # Etapa 2: gráfico opcional
+    # 8) Gera o gráfico se solicitado
     gerar_graf = bool(request.form.get('gerar_grafico'))
     grafico    = generate_chart_data(extracted) if gerar_graf else None
 
+    # 9) Monta a resposta JSON
     resp = {"report_md": report_md}
     if grafico is not None:
         resp["grafico"] = grafico
@@ -70,6 +82,6 @@ def analisar():
 
 
 if __name__ == '__main__':
-    # Faz o bind na porta que o Render fornece, ou 5000 localmente
+    # Usa a porta definida pelo Render ou 5000 localmente
     port = int(os.environ.get('PORT', 5000))
     app.run(debug=True, host='0.0.0.0', port=port)
