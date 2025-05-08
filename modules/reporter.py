@@ -1,20 +1,21 @@
-# modules/reporter.py
-def generate_report_md(extracted: dict[str, str]) -> str:
-    md = "# Relatório Executivo de ColdChain\n\n"
-    # Se existir campo embarque
-    if extracted.get('embarque'):
-        md += f"**Embarque:** {extracted['embarque']}\n\n"
-
-    md += "## 1. Relatório de Temperatura\n"
-    md += "```\n" + extracted['relatorio_temp'] + "\n```\n\n"
-
-    md += "## 2. Solicitação SM\n"
-    md += "```\n" + extracted['solicitacao_sm'] + "\n```\n\n"
-
-    if extracted.get('cte'):
-        md += "## 3. CTE (Conhecimento de Embarque)\n"
-        md += "```\n" + extracted['cte'] + "\n```\n\n"
-
-    md += "---\n"
-    md += "*Gerado automaticamente pelo sistema ColdChain Analytics.*\n"
-    return md
+def generate_report_md(extracted: dict, template: str) -> str:
+    # extrai metadados do extracted (cte, client_name, origin, etc)
+    # monta temp_table e deviations via reporter utils
+    # preenche template:
+    return template.format(
+        embarque=extracted["relatorio_temp_meta"]["embarque"],
+        cte_number=extracted.get("cte_meta", {}).get("cte_number","—"),
+        client_name=extracted["solicitacao_sm_meta"]["client_name"],
+        origin=extracted["solicitacao_sm_meta"]["origin"],
+        destination=extracted["solicitacao_sm_meta"]["destination"],
+        departure=extracted["solicitacao_sm_meta"]["departure"],
+        arrival=extracted["solicitacao_sm_meta"]["arrival"],
+        weight=extracted["relatorio_temp_meta"]["weight"],
+        volume=extracted["relatorio_temp_meta"]["volume"],
+        temp_min=extracted["relatorio_temp_meta"]["temp_min"],
+        temp_max=extracted["relatorio_temp_meta"]["temp_max"],
+        temp_table=build_temperature_table(extracted),
+        deviations_table=build_deviations_table(extracted),
+        analysis_summary=generate_summary(extracted),
+        recommendations=generate_recommendations(extracted),
+    )
