@@ -1,94 +1,217 @@
-import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from werkzeug.utils import secure_filename
-
-from modules.extractor import (
-    extract_from_pdf,
-    extract_from_image,
-    extract_from_excel,
-    ALLOWED_EXT
-)
-from modules.validator import validate_content
-from modules.reporter  import generate_report_md
-from modules.chart     import generate_chart_data
+import fitz  # PyMuPDF
+import pdfplumber
+import os
+import re
+from openai import OpenAI
 
 app = Flask(__name__)
-CORS(app)  # libera CORS para todas as origens
+CORS(app)
 
-# Carrega template de avaliação
-TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "doc", "avaliacao.md")
-with open(TEMPLATE_PATH, encoding="utf-8") as f:
-    PROMPT_TEMPLATE = f.read()
+# Configura cliente OpenAI
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
+# Memória temporária para chat
+ultimo_embarque = None
+ultimo_temp_text = ""
+ultimo_sm_text = ""
 
-# Health-check simples
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify(status="ok"), 200
 
+@app.route('/')
+def home():
+    return 'Coldchain backend está no ar! 🚀'
 
-# Rota principal de análise
 @app.route('/analisar', methods=['POST'])
 def analisar():
-    # 1) Coleta arquivos do form
-    temp = request.files.get('relatorio_temp')
-    sm   = request.files.get('solicitacao_sm')
-    cte  = request.files.get('cte')  # opcional
+    global ultimo_embarque, ultimo_temp_text, ultimo_sm_text
 
-    # 2) Verifica obrigatoriedade
-    if not temp or not sm:
-        return jsonify(error="Relatório de Temperatura e SM são obrigatórios"), 400
+    embarque = request.form.get('embarque')
+    temp_pdf = request.files.get('temps')
+    sm_pdf   = request.files.get('sm')
 
-    # 3) Prepara lista de arquivos a processar
-    to_proc = [
-        ('relatorio_temp', temp),
-        ('solicitacao_sm', sm)
-    ]
-    if cte and cte.filename:
-        to_proc.append(('cte', cte))
+    if not embarque or not temp_pdf or not sm_pdf:
+        return jsonify({'error': 'Faltam dados no formulário'}), 400
 
-    extracted = {}
-    for tipo, f in to_proc:
-        fn  = secure_filename(f.filename)
-        ext = fn.rsplit('.', 1)[-1].lower()
+    try:
+        # 1) Extrai textos brutos
+        temp_text = ''
+        with fitz.open(stream=temp_pdf.read(), filetype="pdf") as doc:
+            for page in doc:
+                temp_text += page.get_text()
 
-        # 4) Valida extensão
-        if ext not in ALLOWED_EXT:
-            return jsonify(error=f"Extensão não suportada: {fn}"), 400
+        sm_text = ''
+        sm_pdf.stream.seek(0)
+        with pdfplumber.open(sm_pdf.stream) as pdf:
+            for page in pdf.pages:
+                sm_text += page.extract_text() or ''
 
-        # 5) Extrai o conteúdo
-        if ext == 'pdf':
-            text = extract_from_pdf(f)
-        elif ext in ('png','jpg','jpeg'):
-            text = extract_from_image(f)
-        else:
-            text = extract_from_excel(f, ext)
+        # 2) Armazena para chat
+        ultimo_embarque = embarque
+        ultimo_temp_text = temp_text[:3000]
+        ultimo_sm_text   = sm_text[:3000]
 
-        # 6) Valida campos obrigatórios no texto
-        try:
-            validate_content(text, fn, tipo)
-        except ValueError as e:
-            return jsonify(error=str(e)), 400
+        # 3) Prompt para detectar faixas e sensores
+        faixa_prompt = f"""
+Você é um analista técnico de cadeia fria. A partir dos textos abaixo, identifique:
+- Nome do Cliente, Origem, Destino (data/hora), se houver;
+- Sensores usados e faixas controladas (ex: 2 a 8°C).
 
-        extracted[tipo] = text.replace("\r\n", "\n")
+RELATÓRIO DE TEMPERATURA:
+{ultimo_temp_text}
 
-    # 7) Gera o relatório em Markdown usando o template
-    report_md = generate_report_md(extracted, PROMPT_TEMPLATE)
+RELATÓRIO SM:
+{ultimo_sm_text}
+"""
+        faixa_resp = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "Você é um analista técnico de cadeia fria."},
+                {"role": "user",   "content": faixa_prompt}
+            ]
+        )
+        faixa_text = faixa_resp.choices[0].message.content.strip()
 
-    # 8) Gera o gráfico se solicitado
-    gerar_graf = bool(request.form.get('gerar_grafico'))
-    grafico    = generate_chart_data(extracted) if gerar_graf else None
+        # 4) Extrai dados tabulares para o gráfico
+        temp_pdf.stream.seek(0)
+        sm_pdf.stream.seek(0)
+        sensor_data = {}
+        timestamps = []
+        with pdfplumber.open(temp_pdf.stream) as pdf:
+            for page in pdf.pages:
+                tables = page.extract_tables()
+                for table in tables:
+                    headers = table[0]
+                    if not headers or "sensor" not in str(headers).lower():
+                        continue
+                    for row in table[1:]:
+                        time_str = row[0]
+                        if not time_str:
+                            continue
+                        timestamps.append(time_str.strip())
+                        for idx, val in enumerate(row[1:], 1):
+                            try:
+                                t = float(val.strip().replace(',', '.'))
+                            except:
+                                continue
+                            key = headers[idx].strip()
+                            sensor_data.setdefault(key, []).append(t)
 
-    # 9) Monta a resposta JSON
-    resp = {"report_md": report_md}
-    if grafico is not None:
-        resp["grafico"] = grafico
+        # 5) Detecta limites via regex
+        match = re.search(r'(\d+(?:\.\d+)?)\s*a\s*(\d+(?:\.\d+)?)', faixa_text)
+        limite_min = float(match.group(1)) if match else 2.0
+        limite_max = float(match.group(2)) if match else 8.0
 
-    return jsonify(resp)
+        # 6) Cria datasets dinâmicos
+        cores = ["#006400","#00aa00","#00cc44"]
+        datasets = []
+        for i,(sensor,vals) in enumerate(sensor_data.items()):
+            datasets.append({
+                "label": sensor,
+                "data": vals,
+                "borderColor": cores[i%len(cores)],
+                "backgroundColor": "transparent",
+                "pointBackgroundColor":[
+                    "red" if v<limite_min or v>limite_max else cores[i%len(cores)]
+                    for v in vals
+                ],
+                "pointRadius":[
+                    6 if v<limite_min or v>limite_max else 3
+                    for v in vals
+                ],
+                "borderWidth":2,
+                "fill":False,
+                "tension":0.4
+            })
 
+        # linhas de limite
+        datasets.append({
+            "label": f"Limite Máx ({limite_max}°C)",
+            "data":[limite_max]*len(timestamps),
+            "borderColor":"rgba(255,0,0,0.3)",
+            "borderDash":[5,5],
+            "pointRadius":0,
+            "fill":False
+        })
+        datasets.append({
+            "label": f"Limite Mín ({limite_min}°C)",
+            "data":[limite_min]*len(timestamps),
+            "borderColor":"rgba(0,0,255,0.3)",
+            "borderDash":[5,5],
+            "pointRadius":0,
+            "fill":False
+        })
+
+        grafico = {
+            "tipo":"line",
+            "labels":timestamps,
+            "datasets":datasets
+        }
+
+        # 7) Gera relatório executivo final
+        final_prompt = f"""
+Com base nos relatórios abaixo, gere um relatório executivo abordando:
+- Cabeçalho (Cliente, Origem, Destino, Datas)
+- Resumo de excursão de temperatura
+- Pontos críticos
+- Sugestões de melhoria
+
+RELATÓRIO DE TEMPERATURA:
+{ultimo_temp_text}
+
+RELATÓRIO SM:
+{ultimo_sm_text}
+"""
+        exec_resp = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role":"system","content":"Você é um analista experiente em cadeia fria."},
+                {"role":"user","content":final_prompt}
+            ]
+        )
+        report_md = exec_resp.choices[0].message.content.strip()
+
+        return jsonify(report_md=report_md, grafico=grafico)
+
+    except Exception as e:
+        return jsonify(error=str(e)), 500
+
+@app.route('/chat', methods=['POST'])
+def chat():
+    global ultimo_embarque, ultimo_temp_text, ultimo_sm_text
+
+    data = request.get_json()
+    pergunta = data.get("pergunta")
+    if not pergunta:
+        return jsonify(erro="Pergunta não enviada."), 400
+    if not ultimo_embarque:
+        return jsonify(erro="Nenhum embarque analisado."), 400
+
+    contexto = f"""
+Você está ajudando com o embarque: {ultimo_embarque}.
+Use estes dados:
+RELATÓRIO DE TEMPERATURA:
+{ultimo_temp_text}
+
+RELATÓRIO SM:
+{ultimo_sm_text}
+"""
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role":"system","content":"Você é um especialista em cadeia fria."},
+                {"role":"user","content":contexto},
+                {"role":"user","content":pergunta}
+            ]
+        )
+        return jsonify(resposta=resp.choices[0].message.content.strip())
+    except Exception as e:
+        return jsonify(erro=str(e)), 500
 
 if __name__ == '__main__':
-    # Usa a porta definida pelo Render ou 5000 localmente
-    port = int(os.environ.get('PORT', 5000))
-    app.run(debug=True, host='0.0.0.0', port=port)
+    port = int(os.environ.get('PORT',5000))
+    app.run(host='0.0.0.0', port=port)
