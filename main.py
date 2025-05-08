@@ -1,6 +1,3 @@
---- a/main.py
-+++ b/main.py
-@@ top
  from modules.extractor import (
      extract_from_pdf,
      extract_from_image,
