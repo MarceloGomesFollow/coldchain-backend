@@ -17,7 +17,7 @@ app = Flask(__name__)
 CORS(app)  # libera CORS para todas as origens
 
 # Carrega template de avaliação
-TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "doc", "avaliacao_embarque_prompt.md")
+TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "doc", "avaliacao.md")
 with open(TEMPLATE_PATH, encoding="utf-8") as f:
     PROMPT_TEMPLATE = f.read()
 
