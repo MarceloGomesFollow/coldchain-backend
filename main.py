@@ -145,9 +145,12 @@ RELATÓRIO SM:
         })
 
         grafico = {
-            "tipo": "line",
-            "labels": timestamps,
-            "datasets": datasets
++           "tipo": "line",
++           "labels": timestamps,
++           "datasets": datasets,
++           # envia para o front qual o limite mínimo e máximo de temperatura
++           "yMin": limite_min,
++           "yMax": limite_max
         }
 
         # 7) Prompt final para gerar o markdown executivo
