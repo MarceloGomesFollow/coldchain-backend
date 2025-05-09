@@ -1,7 +1,5 @@
-// modules/chart.py
 import re
 from typing import Dict, Any, List
-
 
 def generate_chart_data(extracted: Dict[str, str]) -> Dict[str, Any]:
     """
@@ -29,7 +27,7 @@ def generate_chart_data(extracted: Dict[str, str]) -> Dict[str, Any]:
     sensor_names: List[str] = []
     data_rows: List[List[str]] = []
 
-    # Tenta achar cabeçalho com nome "Sensor"
+    # Tenta achar cabeçalho com nome "sensor"
     for line in lines:
         if re.search(r'sensor', line, re.IGNORECASE):
             parts = line.strip().split()
