@@ -1,4 +1,4 @@
-# modules/chart.py
+// modules/chart.py
 import re
 from typing import Dict, Any, List
 
@@ -9,32 +9,34 @@ def generate_chart_data(extracted: Dict[str, str]) -> Dict[str, Any]:
     - Extrai pares (horário, temperatura) (HH:MM e valor).
     - Identifica sensores (colunas) se houver múltiplos.
     - Detecta faixa controlada (ex: 2 a 8°C) via regex.
-    - Retorna labels, datasets, yMin, yMax para o gráfico.
+    - Retorna tipo, labels, datasets, yMin, yMax para o gráfico.
     """
     temp_text = extracted.get('relatorio_temp', '')
     sm_text = extracted.get('solicitacao_sm', '')
 
     # 1) Detecta faixa controlada (min a max °C)
-    faixa_match = re.search(r"(\d+(?:[\.,]\d+)?)\s*[–\-a]\s*(\d+(?:[\.,]\d+)?)\s*°?C", temp_text + " " + sm_text)
+    combined = temp_text + "\n" + sm_text
+    faixa_match = re.search(r"(\d+(?:[\.,]\d+)?)\s*[–\-a]\s*(\d+(?:[\.,]\d+)?)\s*°?C", combined)
     if faixa_match:
         y_min = float(faixa_match.group(1).replace(',', '.'))
         y_max = float(faixa_match.group(2).replace(',', '.'))
     else:
-        y_min, y_max = None, None
+        y_min = None
+        y_max = None
 
-    # 2) Extrai linhas de dados: busca HH:MM seguido de valores
+    # 2) Extrai linhas de dados: HH:MM + value(s)
     lines = temp_text.splitlines()
     sensor_names: List[str] = []
     data_rows: List[List[str]] = []
 
-    # Tenta identificar cabeçalho de sensores (contém 'Sensor')
+    # Tenta achar cabeçalho com nome "Sensor"
     for line in lines:
         if re.search(r'sensor', line, re.IGNORECASE):
             parts = line.strip().split()
             sensor_names = parts[1:]
             break
 
-    # Se encontrou cabeçalho, parseia tabela logo abaixo
+    # Se achou múltiplos sensores, parseia tabela logo abaixo
     if sensor_names:
         parse = False
         for line in lines:
@@ -47,31 +49,30 @@ def generate_chart_data(extracted: Dict[str, str]) -> Dict[str, Any]:
                         data_rows.append([time] + temps)
                 else:
                     break
-            if sensor_names and re.search(r'sensor', line, re.IGNORECASE):
+            if re.search(r'sensor', line, re.IGNORECASE):
                 parse = True
     else:
-        # fallback: extrai todos HH:MM VALOR
-        for m in re.finditer(r"(\d{2}:\d{2})\s+([\d\.,]+)", temp_text):
+        # fallback: pega todos HH:MM VALOR no texto combinado
+        for m in re.finditer(r"(\d{2}:\d{2})\s+([\d\.,]+)", combined):
             time = m.group(1)
             val = m.group(2)
             data_rows.append([time, val])
         sensor_names = ['Sensor']
 
-    # 3) Monta labels e valores por sensor
+    # 3) Labels e valores
     labels = [row[0] for row in data_rows]
-    # transpoe os valores (sem o timestamp)
     raw_vals = [row[1:] for row in data_rows]
-    # cria listas separadas por sensor
-    sensor_values: List[List[float]] = list(map(
-        lambda idx: [float(vals[idx].replace(',', '.')) for vals in raw_vals],
-        range(len(sensor_names))
-    ))
+    # valores por sensor
+    sensor_values: List[List[float]] = [
+        [float(vals[i].replace(',', '.')) for vals in raw_vals]
+        for i in range(len(sensor_names))
+    ]
 
-    # 4) Configura datasets com cores e pontos fora de faixa
+    # 4) Monta datasets com cor para fora de faixa
     palette = ['#006400', '#00aa00', '#00cc44', '#88cc00']
     datasets: List[Dict[str, Any]] = []
-    for i, name in enumerate(sensor_names):
-        temps = sensor_values[i]
+    for idx, name in enumerate(sensor_names):
+        temps = sensor_values[idx]
         point_colors = []
         point_sizes = []
         for t in temps:
@@ -79,13 +80,12 @@ def generate_chart_data(extracted: Dict[str, str]) -> Dict[str, Any]:
                 point_colors.append('red')
                 point_sizes.append(6)
             else:
-                point_colors.append(palette[i % len(palette)])
+                point_colors.append(palette[idx % len(palette)])
                 point_sizes.append(3)
-
         datasets.append({
             'label': name,
             'data': temps,
-            'borderColor': palette[i % len(palette)],
+            'borderColor': palette[idx % len(palette)],
             'backgroundColor': 'transparent',
             'pointBackgroundColor': point_colors,
             'pointRadius': point_sizes,
@@ -94,7 +94,7 @@ def generate_chart_data(extracted: Dict[str, str]) -> Dict[str, Any]:
             'tension': 0.3
         })
 
-    # 5) Adiciona linhas de limite
+    # 5) Adiciona linhas de limite ao final
     if y_min is not None and y_max is not None:
         datasets.append({
             'label': f'Limite Máx ({y_max}°C)',
@@ -113,9 +113,23 @@ def generate_chart_data(extracted: Dict[str, str]) -> Dict[str, Any]:
             'fill': False
         })
 
-    result: Dict[str, Any] = {'labels': labels, 'datasets': datasets}
-    if y_min is not None:
-        result['yMin'] = y_min
-    if y_max is not None:
-        result['yMax'] = y_max
+    # 6) Se y_min/max não foram detectados, define range automático
+    if y_min is None or y_max is None:
+        all_vals = [v for sub in sensor_values for v in sub]
+        if all_vals:
+            mn = min(all_vals)
+            mx = max(all_vals)
+            y_min = mn - abs(mx-mn)*0.1
+            y_max = mx + abs(mx-mn)*0.1
+        else:
+            y_min, y_max = 0.0, 1.0
+
+    # 7) Retorna estrutura completa
+    result: Dict[str, Any] = {
+        'tipo': 'line',
+        'labels': labels,
+        'datasets': datasets,
+        'yMin': y_min,
+        'yMax': y_max
+    }
     return result
