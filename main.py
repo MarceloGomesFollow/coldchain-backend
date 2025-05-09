@@ -5,6 +5,7 @@ import pdfplumber
 import os
 import re
 from openai import OpenAI
+from modules.chart import generate_chart_data
 
 app = Flask(__name__)
 CORS(app)
@@ -49,6 +50,15 @@ def analisar():
             for page in pdf.pages:
                 sm_text += page.extract_text() or ""
 
+        extracted = {
+    'relatorio_temp': temp_text,
+    'solicitacao_sm': sm_text
+}
+grafico = generate_chart_data(extracted)
+
+return jsonify(report_md=report_md, grafico=grafico)
+
+        
         # 2) Armazena para contexto de chat
         ultimo_embarque  = embarque
         ultimo_temp_text = temp_text[:3000]
