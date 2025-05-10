@@ -31,15 +31,17 @@ def home():
 def analisar():
     global ultimo_embarque, ultimo_temp_text, ultimo_sm_text
 
+    # 0) Coleta parâmetros e arquivos
     embarque = request.form.get('embarque')
     temp_pdf = request.files.get('relatorio_temp')
-    sm_pdf = request.files.get('solicitacao_sm')
+    sm_pdf   = request.files.get('solicitacao_sm')
+    cte_pdf  = request.files.get('cte')
 
     if not embarque or not temp_pdf or not sm_pdf:
         return jsonify({'error': 'Faltam dados no formulário'}), 400
 
     try:
-        # 1) Extrai textos brutos dos PDFs
+        # 1) Extrai textos brutos dos PDFs de temperatura e SM
         temp_text = ""
         with fitz.open(stream=temp_pdf.read(), filetype="pdf") as doc:
             for page in doc:
@@ -51,19 +53,10 @@ def analisar():
             for page in pdf.pages:
                 sm_text += page.extract_text() or ""
 
-        # 2) Gera payload do gráfico via módulo
-        extracted = {
-            'relatorio_temp': temp_text,
-            'solicitacao_sm': sm_text
-        }
-        grafico = generate_chart_data(extracted)
-
-        # (Opcional) Extrai texto do CTE se enviado
+        # 2) Extrai texto do CTE, se fornecido
         cte_text = ""
-        cte_pdf = request.files.get('cte')
         if cte_pdf:
             try:
-                # tenta extrair texto via PyMuPDF
                 cte_bytes = cte_pdf.read()
                 with fitz.open(stream=cte_bytes, filetype='pdf') as doc_cte:
                     for p in doc_cte:
@@ -71,21 +64,25 @@ def analisar():
             except Exception:
                 cte_text = ""
 
-        # 3) Armazena para contexto de chat (limita tamanho)
-        ultimo_embarque = embarque
-        ultimo_temp_text = temp_text[:3000]
-        ultimo_sm_text = sm_text[:3000]
+        # 3) Gera payload do gráfico via módulo
+        extracted = {'relatorio_temp': temp_text, 'solicitacao_sm': sm_text}
+        grafico = generate_chart_data(extracted)
 
-        # 4) Prompt final para relatório executivo com estrutura customizada e extração
+        # 4) Armazena para contexto de chat (limitando tamanho)
+        ultimo_embarque  = embarque
+        ultimo_temp_text = temp_text[:3000]
+        ultimo_sm_text   = sm_text[:3000]
+
+        # 5) Monta prompt com nova estrutura obrigatória
         agora = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M:%S")
         final_prompt = f"""
 1. Cabeçalho
-   - **Título**: Análise de Embarque com Temperatura Controlada
-   - **Data/Hora**: {agora} (Horário de Brasília)
-   - **Verificação**: Se algum campo do cabeçalho não for encontrado nos relatórios, escreva “Não encontrado”.
+   - Título: Análise de Embarque com Temperatura Controlada
+   - Data/Hora: {agora} (Horário de Brasília)
+   - Observação: se algum campo estiver ausente no Relatório de Temperatura, SM ou CTE, escreva “Não encontrado”.
 
 2. Origem e Destino
-   A partir dos seguintes textos (incluindo o CTE se disponível), extraia ou escreva “Não encontrado” quando a informação não estiver disponível:
+   A partir dos conteúdos abaixo, preencha a tabela ou indique “Não encontrado”:
 
 RELATÓRIO DE TEMPERATURA:
 {ultimo_temp_text}
@@ -96,25 +93,26 @@ RELATÓRIO SM:
 CTE – Conhecimento de Embarque:
 {cte_text}
 
-   | Campo                  | Valor                                |
-   |------------------------|--------------------------------------|
-   | Cliente Origem         |                                      |
-   | Cliente Destino        |                                      |
-   | Transportadora         |                                      |
-   | Cidade Origem          |                                      |
-   | Endereço Origem        |                                      |
-   | Cidade Destino         |                                      |
-   | Endereço Destino       |                                      |
-   | Prev. Coleta           |                                      |
-   | Prev. Entrega          |                                      |
+   | Campo              | Valor                              |
+   |--------------------|------------------------------------|
+   | Transportadora     |                                    |
+   | Cliente Origem     |                                    |
+   | Cidade Origem      |                                    |
+   | Endereço Origem    |                                    |
+   | Cliente Destino    |                                    |
+   | Cidade Destino     |                                    |
+   | Endereço Destino   |                                    |
+   | Prev. Coleta(data e horário)    |                                    |
+   | Prev. Entrega (data e horário)     |                                    |
 
 3. Dados da Carga
-   - **Material**: extraia do relatório ou escreva “Não encontrado”
-   - **Faixa de Temperatura**: {grafico['yMin']} a {grafico['yMax']} °C
+   - Material: extraia do Relatório ou escreva “Não encontrado”
+   - Faixa de Temperatura: {grafico['yMin']} a {grafico['yMax']} °C
 
 4. Avaliação dos Eventos
-   Forneça uma avaliação detalhada de como se comportou a temperatura durante o transporte,
-   destacando excursões, pontos críticos e variações relevantes.
+   Descreva o comportamento da temperatura durante o transporte, destacando excursões e pontos críticos.
+
+---
 
 ### RELATÓRIO DE TEMPERATURA
 {ultimo_temp_text}
@@ -125,51 +123,12 @@ CTE – Conhecimento de Embarque:
 ### CTE – Conhecimento de Embarque
 {cte_text}
 """
-        exec_resp = client.chat.completions.create
-        agora = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M:%S")
-        final_prompt = f"""
-1. Cabeçalho
-   - **Título**: Análise de Embarque com Temperatura Controlada
-   - **Data/Hora**: {agora} (Horário de Brasília)
 
-2. Origem e Destino
-   A partir dos textos abaixo, extraia ou escreva “Não encontrado” quando a informação não estiver disponível:
-
-RELATÓRIO DE TEMPERATURA:
-{ultimo_temp_text}
-
-RELATÓRIO SM:
-{ultimo_sm_text}
-
-   | Campo                | Valor                               |
-   |----------------------|-------------------------------------|
-   | Cliente              |                                     |
-   | Cidade Origem        |                                     |
-   | Endereço Origem      |                                     |
-   | Cidade Destino       |                                     |
-   | Endereço Destino     |                                     |
-   | Prev. Coleta         |                                     |
-   | Prev. Entrega        |                                     |
-
-3. Dados da Carga
-   - **Material**: extraia do relatório ou escreva “Não encontrado”
-   - **Faixa de Temperatura**: {grafico['yMin']} a {grafico['yMax']} °C
-
-4. Avaliação dos Eventos
-   Forneça uma avaliação detalhada de como se comportou a temperatura durante o transporte,
-   destacando excursões, pontos críticos e variações relevantes.
-
-### RELATÓRIO DE TEMPERATURA
-{ultimo_temp_text}
-
-### RELATÓRIO SM
-{ultimo_sm_text}
-"""
         exec_resp = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system",  "content": "Você é um analista experiente em cadeia fria."},
-                {"role": "user",    "content": final_prompt}
+                {"role": "system", "content": "Você é um analista experiente em cadeia fria."},
+                {"role": "user",   "content": final_prompt}
             ]
         )
         report_md = exec_resp.choices[0].message.content.strip()
@@ -198,6 +157,9 @@ RELATÓRIO DE TEMPERATURA:
 
 RELATÓRIO SM:
 {ultimo_sm_text}
+
+CTE – Conhecimento de Embarque:
+{cte_text}
 """
     try:
         resp = client.chat.completions.create(
