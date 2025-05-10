@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import fitz  # PyMuPDF
+import fitz   # PyMuPDF
 import pdfplumber
 import os
 import re
@@ -75,8 +75,10 @@ def analisar():
     cte_text  = pdf_to_text(cte_pdf)
 
     # ----------------- 3.4 Geração do gráfico ---------------------------
-    grafico = generate_chart_data({'relatorio_temp': temp_text,
-                                   'solicitacao_sm': sm_text})
+    grafico = generate_chart_data({
+        'relatorio_temp': temp_text,
+        'solicitacao_sm': sm_text
+    })
 
     # ----------------- 3.5 Persistência p/ endpoint /chat ---------------
     ultimo_embarque  = embarque
@@ -85,83 +87,81 @@ def analisar():
     ultimo_cte_text  = cte_text[:3000]
 
     # ----------------- 3.6 Extração de metadados via regex --------------
-        def rex(pattern, text, flags=0):
+    def rex(pattern, text, flags=0):
         m = re.search(pattern, text, flags)
         if not m:
             return "Não encontrado"
-        # se há grupos capturados, retorna o primeiro
+        # se existe grupo, retorna group(1)
         if m.lastindex:
             return m.group(1).strip()
-        # caso contrário, retorna o match completo
-        return m.group(0).strip()(pattern, text, flags=0):
-        m = re.search(pattern, text, flags)
-        return m.group(1).strip() if m else "Não encontrado"
+        # senão, match completo
+        return m.group(0).strip()
 
-    transportadora = rex(r'^[A-Z].*?(?:LTDA|EIRELI|S\/?A)', cte_text, re.M)
-    inicio_prest   = rex(r'IN[IÍ]CIO DA PRESTA[ÇC][ÃA]O[\s\S]*?\n\s*([A-ZÀ-Ú\- ]+)', cte_text, re.I)
-    termino_prest  = rex(r'TERMINO DA PRESTA[ÇC][ÃA]O[\s\S]*?\n\s*([A-ZÀ-Ú\- ]+)', cte_text, re.I)
+    transportadora = rex(r'^[A-Z].*?(?:LTDA|EIRELI|S\/?A)', cte_text, re.MULTILINE)
+    inicio_prest   = rex(r'IN[IÍ]CIO DA PRESTA[ÇC][ÃA]O[\s\S]*?\n\s*([A-ZÀ-Ú\- ]+)', cte_text, re.IGNORECASE)
+    termino_prest  = rex(r'TERMINO DA PRESTA[ÇC][ÃA]O[\s\S]*?\n\s*([A-ZÀ-Ú\- ]+)', cte_text, re.IGNORECASE)
 
-    cliente_origem  = rex(r'Cliente(?: Origem)?:\s*([^\n]+)', sm_text, re.I)
-    cliente_destino = rex(r'Destinat[áa]rio:?[ \t]*([^\n]+)', sm_text, re.I)
+    cliente_origem  = rex(r'Cliente(?: Origem)?:\s*([^\n]+)', sm_text, re.IGNORECASE)
+    cliente_destino = rex(r'Destinat[áa]rio:?\s*([^\n]+)', sm_text, re.IGNORECASE)
     if cliente_origem == "Não encontrado":
         cliente_origem = inicio_prest
     if cliente_destino == "Não encontrado":
         cliente_destino = termino_prest
 
-    cidade_origem  = rex(r'Origem:?[ \t]*([^/\n]+)/', sm_text, re.I)
-    cidade_destino = rex(r'Destino:?[ \t]*([^/\n]+)/', sm_text, re.I)
+    cidade_origem  = rex(r'Origem:?\s*([^/\n]+)/', sm_text, re.IGNORECASE)
+    cidade_destino = rex(r'Destino:?\s*([^/\n]+)/', sm_text, re.IGNORECASE)
     if cidade_origem == "Não encontrado":
         cidade_origem = inicio_prest
     if cidade_destino == "Não encontrado":
         cidade_destino = termino_prest
 
-    endereco_origem  = rex(r'Origem:?[^/\n]+/([^\n]+)', sm_text, re.I)
-    endereco_destino = rex(r'Destino:?[^/\n]+/([^\n]+)', sm_text, re.I)
+    endereco_origem  = rex(r'Origem:?[^/\n]+/([^\n]+)', sm_text, re.IGNORECASE)
+    endereco_destino = rex(r'Destino:?[^/\n]+/([^\n]+)', sm_text, re.IGNORECASE)
 
-    prev_coleta  = rex(r'Previs[ãa]o de In[ií]cio:?[ \t]*([0-9/ :]+)', sm_text)
-    prev_entrega = rex(r'Previs[ãa]o de Fim:?[ \t]*([0-9/ :]+)',   sm_text)
+    prev_coleta  = rex(r'Previs[ãa]o de In[ií]cio:?\s*([0-9/ :]+)', sm_text)
+    prev_entrega = rex(r'Previs[ãa]o de Fim:?\s*([0-9/ :]+)', sm_text)
     if prev_coleta == "Não encontrado":
         prev_coleta = inicio_prest
     if prev_entrega == "Não encontrado":
         prev_entrega = termino_prest
 
-    material = rex(r'Material:?[ \t]*([^\n]+)', temp_text + sm_text + cte_text, re.I)
+    material = rex(r'Material:?\s*([^\n]+)', temp_text + sm_text + cte_text, re.IGNORECASE)
 
     # ----------------- 3.7 Construção do Markdown fixo ------------------
     agora = datetime.now(ZoneInfo('America/Sao_Paulo')).strftime('%d/%m/%Y %H:%M:%S')
 
     md_cabecalho = (
-        "### 1. Cabeçalho\n\n" +
-        f"**Título:** Análise de Embarque com Temperatura Controlada  \n" +
+        "### 1. Cabeçalho\n\n"
+        f"**Título:** Análise de Embarque com Temperatura Controlada  \n"
         f"**Data/Hora:** {agora} (Horário de Brasília)"
     )
 
     md_origem_destino = (
-        "### 2. Origem e Destino\n\n" +
-        "| Campo | Valor |\n|-------|-------|\n" +
-        f"| Cliente Origem | {cliente_origem} |\n" +
-        f"| Cliente Destino | {cliente_destino} |\n" +
-        f"| Transportadora | {transportadora} |\n" +
-        f"| Cidade Origem | {cidade_origem} |\n" +
-        f"| Endereço Origem | {endereco_origem} |\n" +
-        f"| Cidade Destino | {cidade_destino} |\n" +
-        f"| Endereço Destino | {endereco_destino} |\n" +
-        f"| Prev. Coleta | {prev_coleta} |\n" +
+        "### 2. Origem e Destino\n\n"
+        "| Campo | Valor |\n|-------|-------|\n"
+        f"| Cliente Origem | {cliente_origem} |\n"
+        f"| Cliente Destino | {cliente_destino} |\n"
+        f"| Transportadora | {transportadora} |\n"
+        f"| Cidade Origem | {cidade_origem} |\n"
+        f"| Endereço Origem | {endereco_origem} |\n"
+        f"| Cidade Destino | {cidade_destino} |\n"
+        f"| Endereço Destino | {endereco_destino} |\n"
+        f"| Prev. Coleta | {prev_coleta} |\n"
         f"| Prev. Entrega | {prev_entrega} |"
     )
 
     md_dados_carga = (
-        "### 3. Dados da Carga\n\n" +
-        f"* **Material:** {material}  \n" +
+        "### 3. Dados da Carga\n\n"
+        f"* **Material:** {material}  \n"
         f"* **Faixa de Temperatura:** {grafico['yMin']} – {grafico['yMax']} °C"
     )
 
-    # ----------------- 3.8 GPT – Avaliação e Conclusão ------------------
+    # ----------------- 3.8 GPT — Avaliação e Conclusão ------------------
     gpt_prompt = (
-        "Gere **apenas** as seções abaixo em Markdown.\n\n" +
-        "### 4. Avaliação dos Eventos\n" +
-        "Descreva em até 6 linhas o comportamento da temperatura, destacando excursões (quando ocorreram, duração).\n\n" +
-        "### 5. Conclusão\n" +
+        "Gere **apenas** as seções abaixo em Markdown.\n\n"
+        "### 4. Avaliação dos Eventos\n"
+        "Descreva em até 6 linhas o comportamento da temperatura, destacando excursões (quando ocorreram, duração).\n\n"
+        "### 5. Conclusão\n"
         "Resuma impacto potencial e dê 1–2 recomendações curtas."
     )
 
@@ -169,7 +169,7 @@ def analisar():
         model='gpt-4',
         messages=[
             {'role': 'system', 'content': 'Você é um analista de cadeia fria.'},
-            {'role': 'user',   'content': gpt_prompt + "\n\n" + temp_text[:1500] }
+            {'role': 'user',   'content': gpt_prompt + "\n\n" + temp_text[:1500]}
         ]
     ).choices[0].message.content.strip()
 
