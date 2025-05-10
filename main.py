@@ -85,7 +85,15 @@ def analisar():
     ultimo_cte_text  = cte_text[:3000]
 
     # ----------------- 3.6 Extração de metadados via regex --------------
-    def rex(pattern, text, flags=0):
+        def rex(pattern, text, flags=0):
+        m = re.search(pattern, text, flags)
+        if not m:
+            return "Não encontrado"
+        # se há grupos capturados, retorna o primeiro
+        if m.lastindex:
+            return m.group(1).strip()
+        # caso contrário, retorna o match completo
+        return m.group(0).strip()(pattern, text, flags=0):
         m = re.search(pattern, text, flags)
         return m.group(1).strip() if m else "Não encontrado"
 
@@ -206,4 +214,3 @@ def chat():
 # -----------------------------------------------------------------------
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
-
