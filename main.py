@@ -12,7 +12,7 @@ app = Flask(__name__)
 CORS(app)
 
 # Configura cliente OpenAI
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+deep_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 # Memória temporária para chat
 ultimo_embarque = None
@@ -73,58 +73,52 @@ def analisar():
         ultimo_temp_text = temp_text[:3000]
         ultimo_sm_text   = sm_text[:3000]
 
-        # 5) Monta prompt com nova estrutura obrigatória
+        # 5) Monta prompt enxuto para relatório executivo
         agora = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M:%S")
+        # reduz trechos brutos para 400 caracteres cada
+        temp_brief = (ultimo_temp_text[:400] + '...') if len(ultimo_temp_text) > 400 else ultimo_temp_text
+        sm_brief   = (ultimo_sm_text[:400] + '...')   if len(ultimo_sm_text)   > 400 else ultimo_sm_text
+        cte_brief  = (cte_text[:400] + '...')         if len(cte_text)        > 400 else cte_text
+
         final_prompt = f"""
 1. Cabeçalho
    - Título: Análise de Embarque com Temperatura Controlada
    - Data/Hora: {agora} (Horário de Brasília)
-   - Observação: se algum campo estiver ausente no Relatório de Temperatura, SM ou CTE, escreva “Não encontrado”.
+   - Observação: use “Não encontrado” se faltar no Relatório, SM ou CTE.
 
 2. Origem e Destino
-   A partir dos conteúdos abaixo, preencha a tabela ou indique “Não encontrado”:
+   Baseie-se nos textos resumidos abaixo e preencha a tabela (ou marque “Não encontrado”):
 
-RELATÓRIO DE TEMPERATURA:
-{ultimo_temp_text}
+RELATÓRIO DE TEMPERATURA (trecho):
+{temp_brief}
 
-RELATÓRIO SM:
-{ultimo_sm_text}
+RELATÓRIO SM (trecho):
+{sm_brief}
 
-CTE – Conhecimento de Embarque:
-{cte_text}
+CTE – Conhecimento de Embarque (trecho):
+{cte_brief}
 
-   | Campo              | Valor                              |
-   |--------------------|------------------------------------|
-   | Transportadora     |                                    |
-   | Cliente Origem     |                                    |
-   | Cidade Origem      |                                    |
-   | Endereço Origem    |                                    |
-   | Cliente Destino    |                                    |
-   | Cidade Destino     |                                    |
-   | Endereço Destino   |                                    |
-   | Prev. Coleta(data e horário)    |                                    |
-   | Prev. Entrega (data e horário)     |                                    |
+   | Campo              | Valor                             |
+   |--------------------|-----------------------------------|
+   | Transportadora     |                                   |
+   | Cliente Origem     |                                   |
+   | Cidade Origem      |                                   |
+   | Endereço Origem    |                                   |
+   | Cliente Destino    |                                   |
+   | Cidade Destino     |                                   |
+   | Endereço Destino   |                                   |
+   | Prev. Coleta data e hora       |                                   |
+   | Prev. Entrega data e hora     |                                   |
 
 3. Dados da Carga
-   - Material: extraia do Relatório ou escreva “Não encontrado”
+   - Material: extraia ou marque “Não encontrado”
    - Faixa de Temperatura: {grafico['yMin']} a {grafico['yMax']} °C
 
 4. Avaliação dos Eventos
-   Descreva o comportamento da temperatura durante o transporte, destacando excursões e pontos críticos.
-
----
-
-### RELATÓRIO DE TEMPERATURA
-{ultimo_temp_text}
-
-### RELATÓRIO SM
-{ultimo_sm_text}
-
-### CTE – Conhecimento de Embarque
-{cte_text}
+   Faça análise do comportamento de temperatura, destacando excursões críticas.
 """
 
-        exec_resp = client.chat.completions.create(
+        exec_resp = deep_client.chat.completions.create(
             model="gpt-4",
             messages=[
                 {"role": "system", "content": "Você é um analista experiente em cadeia fria."},
@@ -146,7 +140,7 @@ def chat():
     if not pergunta:
         return jsonify(error="Pergunta não enviada."), 400
     if not ultimo_embarque:
-        return jsonify(error="Nenhum embarque analisado."), 400
+        return jsonify(error="Nenhum embarque analisado.""), 400
 
     contexto = f"""
 Você está ajudando com o embarque: {ultimo_embarque}.
@@ -158,11 +152,11 @@ RELATÓRIO DE TEMPERATURA:
 RELATÓRIO SM:
 {ultimo_sm_text}
 
-CTE – Conhecimento de Embarque:
-{cte_text}
+CTE – Conhecimento de Embarque (trecho):
+{cte_brief}
 """
     try:
-        resp = client.chat.completions.create(
+        resp = deep_client.chat.completions.create(
             model="gpt-4",
             messages=[
                 {"role": "system", "content": "Você é um especialista em cadeia fria."},
