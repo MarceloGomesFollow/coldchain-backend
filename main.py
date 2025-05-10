@@ -100,15 +100,15 @@ CTE – Conhecimento de Embarque (trecho):
 
    | Campo              | Valor                             |
    |--------------------|-----------------------------------|
-   | Transportadora     |                                   |
    | Cliente Origem     |                                   |
+   | Cliente Destino    |                                   |
+   | Transportadora     |                                   |
    | Cidade Origem      |                                   |
    | Endereço Origem    |                                   |
-   | Cliente Destino    |                                   |
    | Cidade Destino     |                                   |
    | Endereço Destino   |                                   |
-   | Prev. Coleta data e hora       |                                   |
-   | Prev. Entrega data e hora     |                                   |
+   | Prev. Coleta       |                                   |
+   | Prev. Entrega      |                                   |
 
 3. Dados da Carga
    - Material: extraia ou marque “Não encontrado”
@@ -140,7 +140,7 @@ def chat():
     if not pergunta:
         return jsonify(error="Pergunta não enviada."), 400
     if not ultimo_embarque:
-        return jsonify(error="Nenhum embarque analisado.""), 400
+        return jsonify(error="Nenhum embarque analisado."), 400
 
     contexto = f"""
 Você está ajudando com o embarque: {ultimo_embarque}.
