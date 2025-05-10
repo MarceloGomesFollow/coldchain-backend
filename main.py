@@ -154,6 +154,40 @@ RELATÓRIO SM:
 
 CTE – Conhecimento de Embarque (trecho):
 {cte_brief}
+
+# ==== Extração obrigatória de Origem/Destino e Transportadora ====
+# Transportadora
+transportadora = "Não encontrado"
+m = re.search(r"([A-ZÀ-Ú ]+ TRANSPORTES)", cte_text, re.IGNORECASE)
+if m:
+    transportadora = m.group(1).strip()
+
+# Cliente Origem e Destino (exemplo de regex; ajuste conforme seu SM)
+cliente_origem  = "Não encontrado"
+cliente_destino = "Não encontrado"
+m = re.search(r"Cliente da Viagem:\s*Origem\s*-\s*(.+?)\s*Destino\s*-\s*(.+?)\n", sm_text, re.IGNORECASE)
+if m:
+    cliente_origem, cliente_destino = m.group(1).strip(), m.group(2).strip()
+
+# Cidades e endereços (exemplo; adapte a seus relatórios)
+cidade_origem   = "Não encontrado"
+endereco_origem = "Não encontrado"
+cidade_destino  = "Não encontrado"
+endereco_destino= "Não encontrado"
+# supondo que o SM ou PDF tenham linhas "Origem: cidade / endereço"
+m = re.search(r"Origem:\s*(.+?)/(.+?)\nDestino:\s*(.+?)/(.+?)\n", sm_text, re.IGNORECASE)
+if m:
+    cidade_origem, endereco_origem = m.group(1).strip(), m.group(2).strip()
+    cidade_destino, endereco_destino = m.group(3).strip(), m.group(4).strip()
+
+# Previsões de coleta e entrega
+prev_coleta  = "Não encontrado"
+prev_entrega = "Não encontrado"
+m = re.search(r"Previsão de Início:\s*([\d/: ]+)\s*Previsão de Fim:\s*([\d/: ]+)", sm_text)
+if m:
+    prev_coleta, prev_entrega = m.group(1).strip(), m.group(2).strip()
+# ==================================================================
+
 """
     try:
         resp = deep_client.chat.completions.create(
