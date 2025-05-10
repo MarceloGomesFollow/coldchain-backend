@@ -75,53 +75,41 @@ RELATÓRIO DE TEMPERATURA:
 RELATÓRIO SM:
 {ultimo_sm_text}
 """
-        exec_resp = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "Você é um analista experiente em cadeia fria."},
-                {"role": "user",   "content": final_prompt}
-            ]
-        )
-        report_md = exec_resp.choices[0].message.content.strip()
+          # 4) Prompt final para relatório executivo com estrutura tabular
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-        return jsonify(report_md=report_md, grafico=grafico)
-    except Exception as e:
-        return jsonify(error=str(e)), 500
+# Data/hora atuais em Brasília
+agora = datetime.now(ZoneInfo("America/Sao_Paulo"))\
+          .strftime("%d/%m/%Y %H:%M:%S")
 
-@app.route('/chat', methods=['POST'])
-def chat():
-    global ultimo_embarque, ultimo_temp_text, ultimo_sm_text
+final_prompt = f"""
+1. Cabeçalho
+   - **Título**: Análise de Embarque com Temperatura Controlada
+   - **Data/Hora**: {agora} (Horário de Brasília)
 
-    data = request.get_json()
-    pergunta = data.get("pergunta")
-    if not pergunta:
-        return jsonify(error="Pergunta não enviada."), 400
-    if not ultimo_embarque:
-        return jsonify(error="Nenhum embarque analisado."), 400
+2. Origem e Destino
+   | Campo                | Valor                                                  |
+   |----------------------|--------------------------------------------------------|
+   | Cliente              | {{nome do cliente extraído ou “Não encontrado”}}       |
+   | Cidade Origem        | {{cidade de coleta ou “Não encontrado”}}              |
+   | Endereço Origem      | {{endereço de coleta ou “Não encontrado”}}            |
+   | Cidade Destino       | {{cidade de entrega ou “Não encontrado”}}             |
+   | Endereço Destino     | {{endereço de entrega ou “Não encontrado”}}           |
+   | Prev. Coleta         | {{data/hora prevista de coleta ou “Não encontrado”}}  |
+   | Prev. Entrega        | {{data/hora prevista de entrega ou “Não encontrado”}} |
 
-    contexto = f"""
-Você está ajudando com o embarque: {ultimo_embarque}.
-Use estes dados:
+3. Dados da Carga
+   - **Material**: {{tipo de material ou “Não encontrado”}}
+   - **Faixa de Temperatura**: {grafico['yMin']} a {grafico['yMax']} °C
 
-RELATÓRIO DE TEMPERATURA:
+4. Avaliação dos Eventos
+   Forneça uma avaliação detalhada de como se comportou a temperatura durante o transporte,
+   destacando excursões, pontos críticos e variações relevantes.
+
+### RELATÓRIO DE TEMPERATURA
 {ultimo_temp_text}
 
-RELATÓRIO SM:
+### RELATÓRIO SM
 {ultimo_sm_text}
 """
-    try:
-        resp = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "Você é um especialista em cadeia fria."},
-                {"role": "user",   "content": contexto},
-                {"role": "user",   "content": pergunta}
-            ]
-        )
-        return jsonify(resposta=resp.choices[0].message.content.strip())
-    except Exception as e:
-        return jsonify(error=str(e)), 500
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
