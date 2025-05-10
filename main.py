@@ -1,8 +1,9 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import fitz   # PyMuPDF
+import fitz  # PyMuPDF
 import pdfplumber
 import os
+import re
 from openai import OpenAI
 from modules.chart import generate_chart_data
 from datetime import datetime
@@ -34,95 +35,122 @@ def analisar():
     # 0) Coleta parâmetros e arquivos
     embarque = request.form.get('embarque')
     temp_pdf = request.files.get('relatorio_temp')
-    sm_pdf   = request.files.get('solicitacao_sm')
-    cte_pdf  = request.files.get('cte')
+    sm_pdf = request.files.get('solicitacao_sm')
+    cte_pdf = request.files.get('cte')
 
     if not embarque or not temp_pdf or not sm_pdf:
         return jsonify({'error': 'Faltam dados no formulário'}), 400
 
     try:
-        # 1) Extrai textos brutos dos PDFs de temperatura e SM
+        # 1) Extrai textos dos PDFs
         temp_text = ""
         with fitz.open(stream=temp_pdf.read(), filetype="pdf") as doc:
             for page in doc:
-                temp_text += page.get_text()
-
+                temp_text += page.get_text() or ""
         sm_pdf.stream.seek(0)
         sm_text = ""
         with pdfplumber.open(sm_pdf.stream) as pdf:
             for page in pdf.pages:
                 sm_text += page.extract_text() or ""
-
-        # 2) Extrai texto do CTE, se fornecido
+        # extrai texto do CTE se houver
         cte_text = ""
         if cte_pdf:
             try:
                 cte_bytes = cte_pdf.read()
                 with fitz.open(stream=cte_bytes, filetype='pdf') as doc_cte:
                     for p in doc_cte:
-                        cte_text += p.get_text()
+                        cte_text += p.get_text() or ""
             except Exception:
                 cte_text = ""
 
-        # 3) Gera payload do gráfico via módulo
-        extracted = {'relatorio_temp': temp_text, 'solicitacao_sm': sm_text}
-        grafico = generate_chart_data(extracted)
+        # 2) Gera payload do gráfico
+        grafico = generate_chart_data({'relatorio_temp': temp_text, 'solicitacao_sm': sm_text})
 
-        # 4) Armazena para contexto de chat (limitando tamanho)
-        ultimo_embarque  = embarque
+        # 3) Armazena contexto de chat
+        ultimo_embarque = embarque
         ultimo_temp_text = temp_text[:3000]
-        ultimo_sm_text   = sm_text[:3000]
+        ultimo_sm_text = sm_text[:3000]
 
-        # 5) Monta prompt enxuto para relatório executivo
+        # 4) Extrai campos para relatório
+        # Transportadora (busca no CTE)
+        transportadora = "Não encontrado"
+        m = re.search(r"([A-ZÀ-Ú0-9\s]+TRANSPORTES E LOG[ÍI]STICA[^
+]*)", cte_text, re.IGNORECASE)
+        if m:
+            transportadora = m.group(1).strip()
+        # Cliente Origem/Destino (busca no SM)
+        cliente_origem = "Não encontrado"
+        cliente_destino = "Não encontrado"
+        m1 = re.search(r"Cliente(?: Origem)?:\s*([^
+]+)", sm_text, re.IGNORECASE)
+        if m1:
+            cliente_origem = m1.group(1).strip()
+        m2 = re.search(r"Destino:?\s*([^
+]+)", sm_text, re.IGNORECASE)
+        if m2:
+            cliente_destino = m2.group(1).strip()
+        # Cidades e Endereços (SM)
+        cidade_origem = "Não encontrado"
+        endereco_origem = "Não encontrado"
+        cidade_destino = "Não encontrado"
+        endereco_destino = "Não encontrado"
+        m3 = re.search(r"Origem:?\s*([^/\n]+)/([^\n]+)", sm_text, re.IGNORECASE)
+        if m3:
+            cidade_origem, endereco_origem = m3.group(1).strip(), m3.group(2).strip()
+        m4 = re.search(r"Destino:?\s*([^/\n]+)/([^\n]+)", sm_text, re.IGNORECASE)
+        if m4:
+            cidade_destino, endereco_destino = m4.group(1).strip(), m4.group(2).strip()
+        # Previsões
+        prev_coleta = "Não encontrado"
+        prev_entrega = "Não encontrado"
+        m5 = re.search(r"Previs[ãa]o de In[ií]cio:?\s*([0-9/: ]+)" , sm_text)
+        if m5:
+            prev_coleta = m5.group(1).strip()
+        m6 = re.search(r"Previs[ãa]o de Fim:?\s*([0-9/: ]+)" , sm_text)
+        if m6:
+            prev_entrega = m6.group(1).strip()
+        # Material (busca geral)
+        material = "Não encontrado"
+        combined = temp_text + "\n" + sm_text + "\n" + cte_text
+        m7 = re.search(r"Material[:]?\s*([^
+]+)", combined, re.IGNORECASE)
+        if m7:
+            material = m7.group(1).strip()
+
+        # 5) Monta prompt final para o GPT
         agora = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M:%S")
-        # reduz trechos brutos para 400 caracteres cada
-        temp_brief = (ultimo_temp_text[:400] + '...') if len(ultimo_temp_text) > 400 else ultimo_temp_text
-        sm_brief   = (ultimo_sm_text[:400] + '...')   if len(ultimo_sm_text)   > 400 else ultimo_sm_text
-        cte_brief  = (cte_text[:400] + '...')         if len(cte_text)        > 400 else cte_text
-
         final_prompt = f"""
 1. Cabeçalho
    - Título: Análise de Embarque com Temperatura Controlada
    - Data/Hora: {agora} (Horário de Brasília)
-   - Observação: use “Não encontrado” se faltar no Relatório, SM ou CTE.
+   - Observação: use "Não encontrado" se faltar no Relatório, SM ou CTE.
 
 2. Origem e Destino
-   Baseie-se nos textos resumidos abaixo e preencha a tabela (ou marque “Não encontrado”):
-
-RELATÓRIO DE TEMPERATURA (trecho):
-{temp_brief}
-
-RELATÓRIO SM (trecho):
-{sm_brief}
-
-CTE – Conhecimento de Embarque (trecho):
-{cte_brief}
-
-   | Campo              | Valor                             |
-   |--------------------|-----------------------------------|
-   | Cliente Origem     |                                   |
-   | Cliente Destino    |                                   |
-   | Transportadora     |                                   |
-   | Cidade Origem      |                                   |
-   | Endereço Origem    |                                   |
-   | Cidade Destino     |                                   |
-   | Endereço Destino   |                                   |
-   | Prev. Coleta       |                                   |
-   | Prev. Entrega      |                                   |
+   | Campo              | Valor                                           |
+   |--------------------|-------------------------------------------------|
+   | Cliente Origem     | {cliente_origem}                                |
+   | Cliente Destino    | {cliente_destino}                               |
+   | Transportadora     | {transportadora}                                |
+   | Cidade Origem      | {cidade_origem}                                 |
+   | Endereço Origem    | {endereco_origem}                               |
+   | Cidade Destino     | {cidade_destino}                                |
+   | Endereço Destino   | {endereco_destino}                              |
+   | Prev. Coleta       | {prev_coleta}                                   |
+   | Prev. Entrega      | {prev_entrega}                                  |
 
 3. Dados da Carga
-   - Material: extraia ou marque “Não encontrado”
+   - Material: {material}
    - Faixa de Temperatura: {grafico['yMin']} a {grafico['yMax']} °C
 
 4. Avaliação dos Eventos
-   Faça análise do comportamento de temperatura, destacando excursões críticas.
+   Descreva o comportamento da temperatura durante o transporte, destacando excursões críticas.
 """
 
         exec_resp = deep_client.chat.completions.create(
             model="gpt-4",
             messages=[
                 {"role": "system", "content": "Você é um analista experiente em cadeia fria."},
-                {"role": "user",   "content": final_prompt}
+                {"role": "user", "content": final_prompt}
             ]
         )
         report_md = exec_resp.choices[0].message.content.strip()
@@ -133,8 +161,6 @@ CTE – Conhecimento de Embarque (trecho):
 
 @app.route('/chat', methods=['POST'])
 def chat():
-    global ultimo_embarque, ultimo_temp_text, ultimo_sm_text
-
     data = request.get_json()
     pergunta = data.get("pergunta")
     if not pergunta:
@@ -152,42 +178,8 @@ RELATÓRIO DE TEMPERATURA:
 RELATÓRIO SM:
 {ultimo_sm_text}
 
-CTE – Conhecimento de Embarque (trecho):
-{cte_brief}
-
-# ==== Extração obrigatória de Origem/Destino e Transportadora ====
-# Transportadora
-transportadora = "Não encontrado"
-m = re.search(r"([A-ZÀ-Ú ]+ TRANSPORTES)", cte_text, re.IGNORECASE)
-if m:
-    transportadora = m.group(1).strip()
-
-# Cliente Origem e Destino (exemplo de regex; ajuste conforme seu SM)
-cliente_origem  = "Não encontrado"
-cliente_destino = "Não encontrado"
-m = re.search(r"Cliente da Viagem:\s*Origem\s*-\s*(.+?)\s*Destino\s*-\s*(.+?)\n", sm_text, re.IGNORECASE)
-if m:
-    cliente_origem, cliente_destino = m.group(1).strip(), m.group(2).strip()
-
-# Cidades e endereços (exemplo; adapte a seus relatórios)
-cidade_origem   = "Não encontrado"
-endereco_origem = "Não encontrado"
-cidade_destino  = "Não encontrado"
-endereco_destino= "Não encontrado"
-# supondo que o SM ou PDF tenham linhas "Origem: cidade / endereço"
-m = re.search(r"Origem:\s*(.+?)/(.+?)\nDestino:\s*(.+?)/(.+?)\n", sm_text, re.IGNORECASE)
-if m:
-    cidade_origem, endereco_origem = m.group(1).strip(), m.group(2).strip()
-    cidade_destino, endereco_destino = m.group(3).strip(), m.group(4).strip()
-
-# Previsões de coleta e entrega
-prev_coleta  = "Não encontrado"
-prev_entrega = "Não encontrado"
-m = re.search(r"Previsão de Início:\s*([\d/: ]+)\s*Previsão de Fim:\s*([\d/: ]+)", sm_text)
-if m:
-    prev_coleta, prev_entrega = m.group(1).strip(), m.group(2).strip()
-# ==================================================================
-
+CTE – Conhecimento de Embarque:
+{cte_text}
 """
     try:
         resp = deep_client.chat.completions.create(
