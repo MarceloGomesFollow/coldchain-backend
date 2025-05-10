@@ -12,15 +12,21 @@ from zoneinfo import ZoneInfo
 app = Flask(__name__)
 CORS(app)
 
-# --- OpenAI client ------------------------------------------------------
+# -----------------------------------------------------------------------
+# 0. Configuração do OpenAI
+# -----------------------------------------------------------------------
 openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-# --- Memória simples de última análise ---------------------------------
+# -----------------------------------------------------------------------
+# 1. Variáveis globais de contexto (para o endpoint /chat)
+# -----------------------------------------------------------------------
 ultimo_embarque   = None
 ultimo_temp_text  = ""
 ultimo_sm_text    = ""
 ultimo_cte_text   = ""
 
+# -----------------------------------------------------------------------
+# 2. Endpoints básicos (health e home)
 # -----------------------------------------------------------------------
 @app.route('/health')
 def health():
@@ -31,175 +37,146 @@ def home():
     return 'Coldchain backend está no ar! 🚀'
 
 # -----------------------------------------------------------------------
+# 3. Endpoint /analisar — processa PDFs, gera relatório e gráfico
+# -----------------------------------------------------------------------
 @app.route('/analisar', methods=['POST'])
 def analisar():
     global ultimo_embarque, ultimo_temp_text, ultimo_sm_text, ultimo_cte_text
 
+    # ----------------- 3.1 Validação de entrada -------------------------
     embarque = request.form.get('embarque')
     temp_pdf = request.files.get('relatorio_temp')
     sm_pdf   = request.files.get('solicitacao_sm')
     cte_pdf  = request.files.get('cte')  # opcional
-
     if not embarque or not temp_pdf or not sm_pdf:
         return jsonify(error='Faltam dados no formulário'), 400
 
-    # ----------------- 1. Extração de texto --------------------------------
-    def extract_pdf_text(f):
-        text = ""
+    # ----------------- 3.2 Função util PDF → texto ----------------------
+    def pdf_to_text(file_storage):
+        if not file_storage:
+            return ""
+        txt = ""
         try:
-            with fitz.open(stream=f.read(), filetype='pdf') as doc:
+            file_storage.stream.seek(0)
+            with fitz.open(stream=file_storage.read(), filetype='pdf') as doc:
                 for pg in doc:
-                    text += pg.get_text() or ""
+                    txt += pg.get_text() or ""
         except Exception:
             pass
-        return text
+        file_storage.stream.seek(0)
+        return txt
 
-    temp_text = extract_pdf_text(temp_pdf)
+    # ----------------- 3.3 Extração de texto ----------------------------
+    temp_text = pdf_to_text(temp_pdf)
     sm_text   = ""
     with pdfplumber.open(sm_pdf.stream) as pdf:
         for pg in pdf.pages:
             sm_text += pg.extract_text() or ""
+    cte_text  = pdf_to_text(cte_pdf)
 
-    cte_text = extract_pdf_text(cte_pdf) if cte_pdf else ""
-
-    # ----------------- 2. Dados do gráfico ---------------------------------
+    # ----------------- 3.4 Geração do gráfico ---------------------------
     grafico = generate_chart_data({'relatorio_temp': temp_text,
                                    'solicitacao_sm': sm_text})
 
-    # ----------------- 3. Persistência de contexto -------------------------
+    # ----------------- 3.5 Persistência p/ endpoint /chat ---------------
     ultimo_embarque  = embarque
     ultimo_temp_text = temp_text[:3000]
     ultimo_sm_text   = sm_text[:3000]
     ultimo_cte_text  = cte_text[:3000]
 
-    # ----------------- 4. Extração de campos chave ------------------------
-    # Transportadora (primeira linha caixa‑alta que termina em LTDA / EIRELI / S.A.)
-    transportadora = "Não encontrado"
-    m = re.search(r'^[A-Z].*?(?:LTDA|EIRELI|S\/?A)', cte_text, re.MULTILINE)
-    if m:
-        transportadora = m.group(0).strip()
+    # ----------------- 3.6 Extração de metadados via regex --------------
+    def rex(pattern, text, flags=0):
+        m = re.search(pattern, text, flags)
+        return m.group(1).strip() if m else "Não encontrado"
 
-    # Início / Término da prestação (Cidade – UF)
-    inicio_prestacao  = "Não encontrado"
-    termino_prestacao = "Não encontrado"
-    mi = re.search(r'IN[IÍ]CIO DA PRESTA[ÇC][ÃA]O[\s\S]*?\n\s*([A-ZÀ-Ú\- ]+)',
-                   cte_text, re.IGNORECASE)
-    if mi:
-        inicio_prestacao = mi.group(1).strip()
-    mt = re.search(r'TERMINO DA PRESTA[ÇC][ÃA]O[\s\S]*?\n\s*([A-ZÀ-Ú\- ]+)',
-                   cte_text, re.IGNORECASE)
-    if mt:
-        termino_prestacao = mt.group(1).strip()
+    transportadora = rex(r'^[A-Z].*?(?:LTDA|EIRELI|S\/?A)', cte_text, re.M)
+    inicio_prest   = rex(r'IN[IÍ]CIO DA PRESTA[ÇC][ÃA]O[\s\S]*?\n\s*([A-ZÀ-Ú\- ]+)', cte_text, re.I)
+    termino_prest  = rex(r'TERMINO DA PRESTA[ÇC][ÃA]O[\s\S]*?\n\s*([A-ZÀ-Ú\- ]+)', cte_text, re.I)
 
-    # Cliente origem/destino (SM) – fallback para início/término
-    cliente_origem  = re.search(r'Cliente(?: Origem)?:\s*([^\n]+)', sm_text, re.I)
-    cliente_destino = re.search(r'Destinat[áa]rio:?\s*([^\n]+)', sm_text, re.I)
-    cliente_origem  = cliente_origem.group(1).strip() if cliente_origem else inicio_prestacao
-    cliente_destino = cliente_destino.group(1).strip() if cliente_destino else termino_prestacao
+    cliente_origem  = rex(r'Cliente(?: Origem)?:\s*([^\n]+)', sm_text, re.I)
+    cliente_destino = rex(r'Destinat[áa]rio:?[ \t]*([^\n]+)', sm_text, re.I)
+    if cliente_origem == "Não encontrado":
+        cliente_origem = inicio_prest
+    if cliente_destino == "Não encontrado":
+        cliente_destino = termino_prest
 
-    # Cidades (SM) – fallback
-    cidade_origem = inicio_prestacao
-    cidade_destino = termino_prestacao
-    mco = re.search(r'Origem:?\s*([^/\n]+)/', sm_text, re.I)
-    if mco:
-        cidade_origem = mco.group(1).strip()
-    mcd = re.search(r'Destino:?\s*([^/\n]+)/', sm_text, re.I)
-    if mcd:
-        cidade_destino = mcd.group(1).strip()
+    cidade_origem  = rex(r'Origem:?[ \t]*([^/\n]+)/', sm_text, re.I)
+    cidade_destino = rex(r'Destino:?[ \t]*([^/\n]+)/', sm_text, re.I)
+    if cidade_origem == "Não encontrado":
+        cidade_origem = inicio_prest
+    if cidade_destino == "Não encontrado":
+        cidade_destino = termino_prest
 
-    # Endereços (SM)
-    endereco_origem  = "Não encontrado"
-    endereco_destino = "Não encontrado"
-    meo = re.search(r'Origem:?[^/\n]+/([^\n]+)', sm_text, re.I)
-    if meo:
-        endereco_origem = meo.group(1).strip()
-    med = re.search(r'Destino:?[^/\n]+/([^\n]+)', sm_text, re.I)
-    if med:
-        endereco_destino = med.group(1).strip()
+    endereco_origem  = rex(r'Origem:?[^/\n]+/([^\n]+)', sm_text, re.I)
+    endereco_destino = rex(r'Destino:?[^/\n]+/([^\n]+)', sm_text, re.I)
 
-    # Previsões
-    prev_coleta  = re.search(r'Previs[ãa]o de In[ií]cio:?\s*([0-9/ :]+)', sm_text)
-    prev_entrega = re.search(r'Previs[ãa]o de Fim:?\s*([0-9/ :]+)',   sm_text)
-    prev_coleta  = prev_coleta.group(1).strip()  if prev_coleta  else inicio_prestacao
-    prev_entrega = prev_entrega.group(1).strip() if prev_entrega else termino_prestacao
+    prev_coleta  = rex(r'Previs[ãa]o de In[ií]cio:?[ \t]*([0-9/ :]+)', sm_text)
+    prev_entrega = rex(r'Previs[ãa]o de Fim:?[ \t]*([0-9/ :]+)',   sm_text)
+    if prev_coleta == "Não encontrado":
+        prev_coleta = inicio_prest
+    if prev_entrega == "Não encontrado":
+        prev_entrega = termino_prest
 
-    # Material
-    material = "Não encontrado"
-    mm = re.search(r'Material:?\s*([^\n]+)', temp_text + sm_text + cte_text, re.I)
-    if mm:
-        material = mm.group(1).strip()
+    material = rex(r'Material:?[ \t]*([^\n]+)', temp_text + sm_text + cte_text, re.I)
 
-    # ----------------- 5. Prompt de relatório -----------------------------
+    # ----------------- 3.7 Construção do Markdown fixo ------------------
     agora = datetime.now(ZoneInfo('America/Sao_Paulo')).strftime('%d/%m/%Y %H:%M:%S')
-    prompt = f'''
-1. Cabeçalho
-   - Título: Análise de Embarque com Temperatura Controlada
-   - Data/Hora: {agora} (Horário de Brasília)
 
-2. Origem e Destino
-   | Campo              | Valor                                           |
-   |--------------------|-------------------------------------------------|
-   | Cliente Origem     | {cliente_origem}                                |
-   | Cliente Destino    | {cliente_destino}                               |
-   | Transportadora     | {transportadora}                                |
-   | Cidade Origem      | {cidade_origem}                                 |
-   | Endereço Origem    | {endereco_origem}                               |
-   | Cidade Destino     | {cidade_destino}                                |
-   | Endereço Destino   | {endereco_destino}                              |
-   | Prev. Coleta       | {prev_coleta}                                   |
-   | Prev. Entrega      | {prev_entrega}                                  |
+    md_cabecalho = (
+        "### 1. Cabeçalho\n\n"
+        f"**Título:** Análise de Embarque com Temperatura Controlada  \n"
+        f"**Data/Hora:** {agora} (Horário de Brasília)"
+    )
 
-3. Dados da Carga
-   - Material: {material}
-   - Faixa de Temperatura: {grafico['yMin']} a {grafico['yMax']} °C
+    md_origem_destino = (
+        "### 2. Origem e Destino\n\n"
+        "| Campo | Valor |\n|-------|-------|\n" +
+        f"| Cliente Origem | {cliente_origem} |\n" +
+        f"| Cliente Destino | {cliente_destino} |\n" +
+        f"| Transportadora | {transportadora} |\n" +
+        f"| Cidade Origem | {cidade_origem} |\n" +
+        f"| Endereço Origem | {endereco_origem} |\n" +
+        f"| Cidade Destino | {cidade_destino} |\n" +
+        f"| Endereço Destino | {endereco_destino} |\n" +
+        f"| Prev. Coleta | {prev_coleta} |\n" +
+        f"| Prev. Entrega | {prev_entrega} |"
+    )
 
-4. Avaliação dos Eventos
-   Descreva o comportamento da temperatura durante o transporte, destacando excursões críticas.
-'''
+    md_dados_carga = (
+        "### 3. Dados da Carga\n\n"
+        f"* **Material:** {material}  \n"
+        f"* **Faixa de Temperatura:** {grafico['yMin']} – {grafico['yMax']} °C"
+    )
 
-    res = openai_client.chat.completions.create(
+    # ----------------- 3.8 GPT – Avaliação e Conclusão ------------------
+    gpt_prompt = (
+        "Gere **apenas** as seções abaixo em Markdown.\n\n"
+        "### 4. Avaliação dos Eventos\n"
+        "Descreva em até 6 linhas o comportamento da temperatura, destacando excursões (quando ocorreram, duração).\n\n"
+        "### 5. Conclusão\n"
+        "Resuma impacto potencial e dê 1–2 recomendações curtas."
+    )
+
+    md_avaliacao_conclusao = openai_client.chat.completions.create(
         model='gpt-4',
         messages=[
-            {'role': 'system', 'content': 'Você é um analista experiente em cadeia fria.'},
-            {'role': 'user',   'content': prompt}
+            {'role': 'system', 'content': 'Você é um analista de cadeia fria.'},
+            {'role': 'user',   'content': gpt_prompt + "\n\n" + temp_text[:1500] }
         ]
-    )
-    report_md = res.choices[0].message.content.strip()
+    ).choices[0].message.content.strip()
 
-    return jsonify(report_md=report_md, grafico=grafico)
+    # ----------------- 3.9 Montagem final e retorno ---------------------
+    page_break = '<div style="page-break-after:always;height:0;"></div>'
+    report_md = "\n\n".join([
+        md_cabecalho,
+        md_origem_destino,
+        md_dados_carga,
+        md_avaliacao_conclusao,
+        page_break
+    ])
 
-# -----------------------------------------------------------------------
-@app.route('/chat', methods=['POST'])
-def chat():
-    if not ultimo_embarque:
-        return jsonify(error='Nenhum embarque analisado.'), 400
+    return jsonify(report_md
 
-    data = request.get_json()
-    pergunta = data.get('pergunta')
-    if not pergunta:
-        return jsonify(error='Pergunta não enviada.'), 400
-
-    contexto = f'''
-Embarque: {ultimo_embarque}
-
-RELATÓRIO TEMP:
-{ultimo_temp_text}
-
-RELATÓRIO SM:
-{ultimo_sm_text}
-
-CTE:
-{ultimo_cte_text}'''
-
-    resp = openai_client.chat.completions.create(
-        model='gpt-4',
-        messages=[
-            {'role': 'system', 'content': 'Você é um especialista em cadeia fria.'},
-            {'role': 'user',   'content': contexto},
-            {'role': 'user',   'content': pergunta}
-        ]
-    )
-    return jsonify(resposta=resp.choices[0].message.content.strip())
 
 # -----------------------------------------------------------------------
 if __name__ == '__main__':
