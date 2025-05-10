@@ -175,7 +175,7 @@ def analisar():
         page_break
     ])
 
-    return jsonify(report_md
+    return jsonify(report_md=report_md, grafico=grafico)
 
 
 # -----------------------------------------------------------------------
