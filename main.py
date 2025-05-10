@@ -123,13 +123,13 @@ def analisar():
     agora = datetime.now(ZoneInfo('America/Sao_Paulo')).strftime('%d/%m/%Y %H:%M:%S')
 
     md_cabecalho = (
-        "### 1. Cabeçalho\n\n"
-        f"**Título:** Análise de Embarque com Temperatura Controlada  \n"
+        "### 1. Cabeçalho\n\n" +
+        f"**Título:** Análise de Embarque com Temperatura Controlada  \n" +
         f"**Data/Hora:** {agora} (Horário de Brasília)"
     )
 
     md_origem_destino = (
-        "### 2. Origem e Destino\n\n"
+        "### 2. Origem e Destino\n\n" +
         "| Campo | Valor |\n|-------|-------|\n" +
         f"| Cliente Origem | {cliente_origem} |\n" +
         f"| Cliente Destino | {cliente_destino} |\n" +
@@ -143,17 +143,17 @@ def analisar():
     )
 
     md_dados_carga = (
-        "### 3. Dados da Carga\n\n"
-        f"* **Material:** {material}  \n"
+        "### 3. Dados da Carga\n\n" +
+        f"* **Material:** {material}  \n" +
         f"* **Faixa de Temperatura:** {grafico['yMin']} – {grafico['yMax']} °C"
     )
 
     # ----------------- 3.8 GPT – Avaliação e Conclusão ------------------
     gpt_prompt = (
-        "Gere **apenas** as seções abaixo em Markdown.\n\n"
-        "### 4. Avaliação dos Eventos\n"
-        "Descreva em até 6 linhas o comportamento da temperatura, destacando excursões (quando ocorreram, duração).\n\n"
-        "### 5. Conclusão\n"
+        "Gere **apenas** as seções abaixo em Markdown.\n\n" +
+        "### 4. Avaliação dos Eventos\n" +
+        "Descreva em até 6 linhas o comportamento da temperatura, destacando excursões (quando ocorreram, duração).\n\n" +
+        "### 5. Conclusão\n" +
         "Resuma impacto potencial e dê 1–2 recomendações curtas."
     )
 
@@ -177,11 +177,33 @@ def analisar():
 
     return jsonify(report_md=report_md, grafico=grafico)
 
+# -----------------------------------------------------------------------
+@app.route('/chat', methods=['POST'])
+def chat():
+    if not ultimo_embarque:
+        return jsonify(error='Nenhum embarque analisado.'), 400
+    data = request.get_json() or {}
+    pergunta = data.get('pergunta')
+    if not pergunta:
+        return jsonify(error='Pergunta não enviada.'), 400
+
+    contexto = (
+        f"Embarque: {ultimo_embarque}\n\n"
+        f"RELATÓRIO TEMP:\n{ultimo_temp_text}\n\n"
+        f"RELATÓRIO SM:\n{ultimo_sm_text}\n\n"
+        f"CTE:\n{ultimo_cte_text}"
+    )
+    resp = openai_client.chat.completions.create(
+        model='gpt-4',
+        messages=[
+            {'role': 'system', 'content': 'Você é um especialista em cadeia fria.'},
+            {'role': 'user',   'content': contexto},
+            {'role': 'user',   'content': pergunta}
+        ]
+    )
+    return jsonify(resposta=resp.choices[0].message.content.strip())
 
 # -----------------------------------------------------------------------
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
