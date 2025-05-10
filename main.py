@@ -63,27 +63,35 @@ def analisar():
         ultimo_temp_text = temp_text[:3000]
         ultimo_sm_text = sm_text[:3000]
 
-        # 4) Prompt final para relatório executivo com nova estrutura
+        # 4) Prompt final para relatório executivo com estrutura customizada e extração
         agora = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M:%S")
         final_prompt = f"""
 1. Cabeçalho
-   - Título: Análise de Embarque com Temperatura Controlada
-   - Data/Hora: {agora} (Horário de Brasília)
+   - **Título**: Análise de Embarque com Temperatura Controlada
+   - **Data/Hora**: {agora} (Horário de Brasília)
 
 2. Origem e Destino
-   | Campo                | Valor                                                  |
-   |----------------------|--------------------------------------------------------|
-   | Cliente              | {{nome do cliente extraído ou "Não encontrado"}}       |
-   | Cidade Origem        | {{cidade de coleta ou "Não encontrado"}}              |
-   | Endereço Origem      | {{endereço de coleta ou "Não encontrado"}}            |
-   | Cidade Destino       | {{cidade de entrega ou "Não encontrado"}}             |
-   | Endereço Destino     | {{endereço de entrega ou "Não encontrado"}}           |
-   | Prev. Coleta         | {{data/hora prevista de coleta ou "Não encontrado"}}  |
-   | Prev. Entrega        | {{data/hora prevista de entrega ou "Não encontrado"}} |
+   A partir dos textos abaixo, extraia ou escreva “Não encontrado” quando a informação não estiver disponível:
+
+RELATÓRIO DE TEMPERATURA:
+{ultimo_temp_text}
+
+RELATÓRIO SM:
+{ultimo_sm_text}
+
+   | Campo                | Valor                               |
+   |----------------------|-------------------------------------|
+   | Cliente              |                                     |
+   | Cidade Origem        |                                     |
+   | Endereço Origem      |                                     |
+   | Cidade Destino       |                                     |
+   | Endereço Destino     |                                     |
+   | Prev. Coleta         |                                     |
+   | Prev. Entrega        |                                     |
 
 3. Dados da Carga
-   - Material: {{tipo de material transportado ou "Não encontrado"}}
-   - Faixa de Temperatura: {grafico['yMin']} a {grafico['yMax']} °C
+   - **Material**: extraia do relatório ou escreva “Não encontrado”
+   - **Faixa de Temperatura**: {grafico['yMin']} a {grafico['yMax']} °C
 
 4. Avaliação dos Eventos
    Forneça uma avaliação detalhada de como se comportou a temperatura durante o transporte,
@@ -95,7 +103,6 @@ def analisar():
 ### RELATÓRIO SM
 {ultimo_sm_text}
 """
-
         exec_resp = client.chat.completions.create(
             model="gpt-4",
             messages=[
@@ -146,3 +153,4 @@ RELATÓRIO SM:
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+
